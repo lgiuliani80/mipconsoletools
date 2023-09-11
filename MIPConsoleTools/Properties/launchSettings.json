@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MIPConsoleTools": {
+      "commandName": "Project",
+      "commandLineArgs": "--action=decrypt --input=\"c:\\temp\\lloyds\\IN0\\ome18260219069689259441.msg\" --output=\"c:\\temp\\lloyds\\OUT0\\ome18260219069689259441.dec.msg\" --msgTemplate=\"c:\\temp\\lloyds\\IN0\\OME - HC.msg.msg\""
+    }
+  }
+}
