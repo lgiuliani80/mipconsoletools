@@ -19,6 +19,7 @@ var host = Host.CreateDefaultBuilder(args)
 var config = host.Services.GetRequiredService<IConfiguration>();
 var log = host.Services.GetRequiredService<ILogger<Program>>();
 var miplog = host.Services.GetRequiredService<ILogger<MIPMain>>();
+string input = null!;
 using var logScope = log.BeginScope("[mtid={tid,5}]", new ManagedThreadIdGenerator());
 
 log.LogInformation("ClientId = {clientId}", config["MIP:ClientId"]);
@@ -32,11 +33,17 @@ MIPMain mip = new (
 switch (config["action"])
 {
     case "decrypt":
-        var input = config["input"]!;
+        input = config["input"]!;
         if (input.EndsWith(".eml", StringComparison.InvariantCultureIgnoreCase))
         {
             var eml = MsgReader.Mime.Message.Load(new FileInfo(input));
             var wrappedMsg = Path.ChangeExtension(input, ".wrapped.msg");
+            if (eml.Attachments.Count == 0 || !eml.Attachments[0].FileName.EndsWith(".rpmsg", StringComparison.InvariantCultureIgnoreCase))
+            {
+                log.LogWarning("Input file {input} is not an encrypted message!!", input);
+                Environment.Exit(1);
+            }
+            
             using (var wrappedMsgFs = File.Create(wrappedMsg))
             {
                 MSGUtils.EmplaceAttachmentInMsgFile(config["msgTemplate"]!, eml.Attachments[0].Body, wrappedMsgFs);
@@ -56,7 +63,24 @@ switch (config["action"])
         break;
 
     case "inspect":
-        var result = await mip.InspectMSGAsync(config["input"]!);
+        input = config["input"]!;
+        if (input.EndsWith(".eml", StringComparison.InvariantCultureIgnoreCase))
+        {
+            var eml = MsgReader.Mime.Message.Load(new FileInfo(input));
+            var wrappedMsg = Path.ChangeExtension(input, ".wrapped.msg");
+            if (eml.Attachments.Count == 0 || !eml.Attachments[0].FileName.EndsWith(".rpmsg", StringComparison.InvariantCultureIgnoreCase))
+            {
+                log.LogWarning("Input file {input} is not an encrypted message!!", input);
+                Environment.Exit(1);
+            }
+
+            using (var wrappedMsgFs = File.Create(wrappedMsg))
+            {
+                MSGUtils.EmplaceAttachmentInMsgFile(config["msgTemplate"]!, eml.Attachments[0].Body, wrappedMsgFs);
+            }
+            input = wrappedMsg;
+        }
+        var result = await mip.InspectMSGAsync(input);
         log.LogInformation("InspectFileAsync: body type = {bodyType}, attachments count = {attCount}", result?.BodyType, result?.Attachments?.Count);
         Console.WriteLine(result?.Body);
         break;

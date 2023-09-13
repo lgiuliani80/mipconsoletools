@@ -75,7 +75,7 @@ namespace MIPConsoleTools
                 _engineSettings.Cloud = Cloud.Commercial;
                 _engineSettings.Identity = new Identity(username);
                 if (!string.IsNullOrWhiteSpace(delegatedUser))
-                    _engineSettings.DelegatedUserEmail = username;  // NOT REQUIRED IN CASE OF Content.SuperUser APPLICATION PERMISSION
+                    _engineSettings.DelegatedUserEmail = delegatedUser;  // NOT REQUIRED IN CASE OF Content.SuperUser APPLICATION PERMISSION
                 _engineSettings.CustomSettings = new List<KeyValuePair<string, string>> {
                     KeyValuePair.Create("enable_msg_file_type", "true")
                 };
