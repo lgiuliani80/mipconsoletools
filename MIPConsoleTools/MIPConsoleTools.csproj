@@ -9,11 +9,15 @@
 
   <ItemGroup>
     <None Remove="appsettings-CostaCRMTest.json" />
+    <None Remove="appsettings.Development.json" />
     <None Remove="appsettings.json" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.Development.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="appsettings-CostaCRMTest.json">

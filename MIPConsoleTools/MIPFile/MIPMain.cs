@@ -5,6 +5,7 @@ using Microsoft.InformationProtection.Exceptions;
 using Microsoft.InformationProtection.File;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -28,7 +29,7 @@ namespace MIPConsoleTools
         readonly IFileEngine _fileEngine;
         readonly ILogger _logger;
 
-        public MIPMain(ILogger logger, MIPL.LogLevel logLevel, string tenantId, string clientId, string appName, string appVersion, string username, string clientSecretOrCertificate, string locale = "en-US", string mipDataDir = "mip_data", string? delegatedUser = null)
+        public MIPMain(ILogger logger, MIPL.LogLevel logLevel, string tenantId, string clientId, string appName, string appVersion, string username, string clientSecretOrCertificate, string locale = "en-US", string mipDataDir = "mip_data", string? delegatedUser = null, bool isInteractive = false)
         {
             _logger = logger;
 
@@ -46,7 +47,7 @@ namespace MIPConsoleTools
                 }; 
 
                 // Instantiate the AuthDelegateImpl object, passing in AppInfo.
-                AuthDelegateImplementation authDelegate = new(logger, appInfo, tenantId, clientSecretOrCertificate);
+                AuthDelegateImplementation authDelegate = new(logger, appInfo, tenantId, clientSecretOrCertificate, isInteractive);
 
                 // Create MipConfiguration Object
                 MipConfiguration mipConfiguration = new(appInfo, mipDataDir, logLevel, false)
@@ -150,6 +151,11 @@ namespace MIPConsoleTools
             return ret;
         }
 
+        public ReadOnlyCollection<Label> GetLabels()
+        {
+            return _fileEngine.SensitivityLabels;
+        }
+
         public async Task<string?> GetLabelAsync(string msgFileInput)
         {
             using var fileHandler = await _fileEngine.CreateFileHandlerAsync(msgFileInput, msgFileInput, true);
@@ -162,6 +168,21 @@ namespace MIPConsoleTools
             {
                 return null;
             }
+        }
+
+        public async Task SetLabelAsync(string msgFileInput, string msgFileOutput, Label label, string justification)
+        {
+            using var fileHandler = await _fileEngine.CreateFileHandlerAsync(msgFileInput, msgFileInput, true);
+
+            fileHandler.SetLabel(label, new LabelingOptions
+            {
+                IsDowngradeJustified = true,
+                JustificationMessage = justification
+            }, new ProtectionSettings
+            {
+
+            });
+            await fileHandler.CommitAsync(msgFileOutput);
         }
 
         public async Task<bool> RemoveLabelAsync(string msgFileInput, string msgFileOutput, string justification)

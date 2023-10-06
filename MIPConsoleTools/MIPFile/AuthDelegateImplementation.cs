@@ -21,26 +21,26 @@ namespace MIPConsoleTools
         private readonly ILogger _logger;
         private readonly ApplicationInfo _appInfo;
         private readonly string _tenantId, _clientSecretOrCertificate;
+        private readonly bool _isInteractive;
         
-        public AuthDelegateImplementation(ILogger logger, ApplicationInfo appInfo, string tenantId, string clientSecretOrCertificate)
+        public AuthDelegateImplementation(ILogger logger, ApplicationInfo appInfo, string tenantId, string clientSecretOrCertificate, bool isInteractive)
         {
             _logger = logger;
             _appInfo = appInfo;
             _tenantId = tenantId;
             _clientSecretOrCertificate = clientSecretOrCertificate;
+            _isInteractive = isInteractive;
         }
 
         public string AcquireToken(Identity identity, string authority, string resource, string claims)
         {
-            var is_interactive = false;
-
             _logger.LogInformation("AcquireToken: Identity={identityName} ({identityEmail}); Authority={authority}; resource={resource}; claims={claims}",
                 identity.Name, identity.Email, authority, resource, claims);
 
             var authorityUri = new Uri(authority);
             var isForeignTenant = authorityUri.PathAndQuery.Split('/')[1] != _tenantId && authorityUri.PathAndQuery.Split('/')[1] != "common";
 
-            if (is_interactive || isForeignTenant)
+            if (_isInteractive || isForeignTenant)
             {
                 // THIS BRANCH OF THE CODE IS *NOT* OF INTEREST FOR LLOYDS - PLEASE DO NOT INCLUDE IN YOUR CODE
                 var pclientBuilder = PublicClientApplicationBuilder.Create("c00e9d32-3c8d-4a7d-832b-029040e7db99" /*_appInfo.ApplicationId*/);

@@ -11,7 +11,7 @@ var host = Host.CreateDefaultBuilder(args)
         {
             options.IncludeScopes = true;
             options.SingleLine = true;
-            options.TimestampFormat = "[yyyy-MM-dd HH:mm:ss.fff] ";
+            options.TimestampFormat = "[yyyy-MM-dd HH:mm:ss.fff] x ";
         });
     })
     .Build();
@@ -28,12 +28,18 @@ MIPMain mip = new (
     miplog,
     config.GetValue<Microsoft.InformationProtection.LogLevel>("MIP:LogLevel"),
     config["MIP:TenantId"]!, config["MIP:ClientId"]!, config["MIP:AppName"]!, config["MIP:AppVersion"]!,
-    config["MIP:Username"]!, config["MIP:ClientSecret"]!, delegatedUser: config["MIP:DelegatedUser"] );
+    config["MIP:Username"]!, config["MIP:ClientSecret"]!, 
+    delegatedUser: config["MIP:DelegatedUser"], 
+    isInteractive: config.GetValue("MIP:IsInteractive", false) 
+);
+
+bool result = false;
 
 switch (config["action"])
 {
     case "decrypt":
         input = config["input"]!;
+        
         if (input.EndsWith(".eml", StringComparison.InvariantCultureIgnoreCase))
         {
             var eml = MsgReader.Mime.Message.Load(new FileInfo(input));
@@ -50,16 +56,50 @@ switch (config["action"])
             }
             input = wrappedMsg;
         }
+
         using (var fs = File.Create(config["output"]!))
         {
-            await mip.DecryptFileAsync(input, fs);
+            result = await mip.DecryptFileAsync(input, fs);
+
+            if (!result)
+            {
+                log.LogError("Failed to decrypt {input}", input);
+            }
+        }
+        break;
+
+    case "listlabels":
+        var labels = mip.GetLabels();
+        foreach (var label in labels)
+        {
+            log.LogInformation("Label: [{labelId}] {labelName} : {labelDescription} - Color: {labelColor}", label.Id, label.Name, label.Description, label.Color);
         }
         break;
 
     case "delabel":
-        await mip.RemoveLabelAsync(
+        result = await mip.RemoveLabelAsync(
             config["input"]!, config["output"]!, 
             config.GetValue("MIP:Justification", "Label removed programmatically")!);
+
+        if (!result)
+        {
+            log.LogError("Failed to remove label from {input}", config["input"]);
+        }
+
+        break;
+
+    case "label":
+        var lbl = mip.GetLabels().FirstOrDefault(x => x.Id == config["label"] || x.Name == config["label"] || x.Description == config["label"]);
+        if (lbl == null)
+        {
+            log.LogError("Unable to file label {label}", config["label"]);
+        }
+        else
+        {
+            await mip.SetLabelAsync(
+                   config["input"]!, config["output"]!, 
+                   lbl, config["MIP:Justification"]!);
+        }
         break;
 
     case "inspect":
@@ -80,9 +120,9 @@ switch (config["action"])
             }
             input = wrappedMsg;
         }
-        var result = await mip.InspectMSGAsync(input);
-        log.LogInformation("InspectFileAsync: body type = {bodyType}, attachments count = {attCount}", result?.BodyType, result?.Attachments?.Count);
-        Console.WriteLine(result?.Body);
+        var inspectResult = await mip.InspectMSGAsync(input);
+        log.LogInformation("InspectFileAsync: body type = {bodyType}, attachments count = {attCount}", inspectResult?.BodyType, inspectResult?.Attachments?.Count);
+        Console.WriteLine(inspectResult?.Body);
         break;
 }
 

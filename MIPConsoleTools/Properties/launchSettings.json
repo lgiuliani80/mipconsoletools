@@ -2,7 +2,7 @@
   "profiles": {
     "MIPConsoleTools": {
       "commandName": "Project",
-      "commandLineArgs": "--action=delabel --input=\"C:\\Temp\\LLoyds\\IN0\\T1\\HighlyConf-External.wrapped.msg\" --output=\"c:\\temp\\lloyds\\OUT0\\T1\\HighlyConf-External.delabel.msg\" --msgTemplate=\"c:\\temp\\lloyds\\IN0\\T0\\OME - HC.msg\""
+      "commandLineArgs": "--environment=Development --action=listlabels --input=\"C:\\Temp\\testconfidential.docx\" --output=\"c:\\temp\\testconfidential-del.docx\" --msgTemplate=\"c:\\temp\\lloyds\\IN0\\T0\\OME - HC.msg\""
     }
   }
 }
