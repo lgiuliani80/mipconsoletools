@@ -1,19 +1,24 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using LLoydsMonitorFolderForDecrypt.MSGFileUtils;
+using Microsoft.Extensions.Logging;
 using Microsoft.Identity.Client;
 using Microsoft.InformationProtection;
 using Microsoft.InformationProtection.Exceptions;
 using Microsoft.InformationProtection.File;
+using MsgReader.Outlook;
+using OpenMcdf;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net.Mail;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
-
+using static LLoydsMonitorFolderForDecrypt.MSGFileUtils.MsgFileUtils;
 using MEL = Microsoft.Extensions.Logging;
 using MIPL = Microsoft.InformationProtection;
 
@@ -28,6 +33,9 @@ namespace MIPConsoleTools
         readonly IFileProfile _fileProfile;
         readonly IFileEngine _fileEngine;
         readonly ILogger _logger;
+
+        public bool AppendSensitivityLabelToNames { get; set; }
+        public string MSGTemplateFile { get; set; }
 
         public MIPMain(ILogger logger, MIPL.LogLevel logLevel, string tenantId, string clientId, string appName, string appVersion, string username, string clientSecretOrCertificate, string locale = "en-US", string mipDataDir = "mip_data", string? delegatedUser = null, bool isInteractive = false)
         {
@@ -44,7 +52,7 @@ namespace MIPConsoleTools
                     ApplicationId = clientId,
                     ApplicationName = appName,
                     ApplicationVersion = appVersion
-                }; 
+                };
 
                 // Instantiate the AuthDelegateImpl object, passing in AppInfo.
                 AuthDelegateImplementation authDelegate = new(logger, appInfo, tenantId, clientSecretOrCertificate, isInteractive);
@@ -82,7 +90,7 @@ namespace MIPConsoleTools
                 };
 
                 _fileEngine = Task.Run(async () => await _fileProfile.AddEngineAsync(_engineSettings)).Result;
-            } 
+            }
             catch (Win32Exception w32ex)
             {
                 logger.LogError($"Win32Exception: code/hresult={w32ex.ErrorCode} / hresult={w32ex.HResult} / errno={w32ex.NativeErrorCode}  -> ie {w32ex.InnerException}");
@@ -109,7 +117,7 @@ namespace MIPConsoleTools
                 var s = await fileHandler.GetDecryptedTemporaryFileAsync();
                 await CopyToDestinationAsync(s, decrypted);
                 return true;
-            } 
+            }
             catch (NotSupportedException ex) when (ex.Message.StartsWith("File is not protected"))
             {
                 await CopyToDestinationAsync(msgFileInput, decrypted);
@@ -117,10 +125,259 @@ namespace MIPConsoleTools
             }
             catch (BadInputException ex)
             {
-                _logger.LogWarning(ex, "BadInputException while trying OME descript of {fileName}", msgFileInput);
+                _logger.LogWarning(ex, "BadInputException while trying OME decryption of {fileName}", msgFileInput);
                 await CopyToDestinationAsync(msgFileInput, decrypted);
                 return false;
             }
+        }
+
+        public async Task<string> RecursiveDecryptAsync(string msgFileInput, string msgFileOutput)
+        {
+            using var output = await RecursiveProcessForDecryptionAsync(msgFileInput);
+            
+            if (output.Label != null && AppendSensitivityLabelToNames)
+            {
+                msgFileOutput = Path.Combine(Path.GetDirectoryName(msgFileOutput)!, $"[{output.Label}]{Path.GetFileName(msgFileOutput)}");
+            }
+            
+            File.Copy(output, msgFileOutput, overwrite: true);
+
+            return msgFileOutput;
+        }
+
+        public record FileNameWrapper(string FileName, bool DeleteAtDispose) : IDisposable
+        {
+            public string? Label { get; set; }
+            public void Dispose()
+            {
+                if (DeleteAtDispose)
+                {
+                    try { File.Delete(FileName); } catch { }
+                }
+                GC.SuppressFinalize(this);
+            }
+
+            public static implicit operator string(FileNameWrapper w) => w.FileName;
+        }
+
+        public record TempFileWrapper(string OriginalFileName) 
+            : FileNameWrapper(Path.Combine(Path.GetTempPath(), $"att-{Guid.NewGuid()}-{OriginalFileName}"), true)
+        {
+        }
+
+        public class TempDirWrapper : IDisposable
+        {
+            public string DirectoryName { get; init; }
+
+            public TempDirWrapper(string directoryName = "")
+            {
+                DirectoryName = directoryName;
+                Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"attdir-{Guid.NewGuid()}{DirectoryName}"));
+            }
+
+            public void Dispose()
+            {
+                try { Directory.Delete(DirectoryName, recursive: true); } catch (Exception) { }
+                GC.SuppressFinalize(this);
+            }
+
+            public static implicit operator string(TempDirWrapper w) => w.DirectoryName;
+        }
+
+        public record DecryptResult(string DecryptedFileName, bool WasDecrypted) 
+            : FileNameWrapper(DecryptedFileName, WasDecrypted)
+        {
+        }
+
+        public async Task<DecryptResult> DecryptFileAsync(string msgFileInput)
+        {
+            var label = await GetLabelAsync(msgFileInput);
+            using var ms = new MemoryStream();
+            var result = await DecryptFileAsync(msgFileInput, ms);
+            if (result)
+            {
+                string tmpFile = Path.GetTempFileName();
+                using var fs = File.Create(tmpFile);
+                ms.Seek(0, SeekOrigin.Begin);
+                await ms.CopyToAsync(fs);
+
+                return new DecryptResult(tmpFile, true) { Label = label };
+            }
+            else
+            {
+                return new DecryptResult(msgFileInput, false) { Label = label };
+            }
+        }
+
+        private async Task<FileNameWrapper> RecursiveProcessForDecryptionAsync(string containerFile)
+        {
+            var ext = Path.GetExtension(containerFile).ToLower();
+
+            switch (ext)
+            {
+                case ".msg":
+                    {
+                        return await RecursiveDecryptMSGAsync(containerFile);
+                    }
+
+                case ".zip":
+                    {
+                        using var tmpFolder = new TempDirWrapper();
+                        bool processed = false;
+                        ZipFile.ExtractToDirectory(containerFile, tmpFolder);
+                        foreach (var file in Directory.EnumerateFiles(tmpFolder, "*", SearchOption.AllDirectories))
+                        {
+                            using var decryptResult = await RecursiveProcessForDecryptionAsync(file);
+
+                            if (decryptResult.DeleteAtDispose)
+                            {
+                                File.Move(decryptResult, file, overwrite: true);
+                                processed = true;
+                            }
+
+                            if (AppendSensitivityLabelToNames && decryptResult.Label != null)
+                            {
+                                File.Move(file, $"[{decryptResult.Label}]{file}", overwrite: true);
+                                processed = true;
+                            }
+                        }
+                        if (processed)
+                        {
+                            var tmpZipToEmplace = new TempFileWrapper(containerFile);
+                            ZipFile.CreateFromDirectory(tmpFolder, tmpZipToEmplace);
+                            return tmpZipToEmplace;
+                        }
+                        else
+                        {
+                            return new FileNameWrapper(containerFile, false);
+                        }
+                    }
+
+                default:
+                    return await DecryptFileAsync(containerFile);
+            }
+        }
+
+        private async Task<FileNameWrapper> RecursiveDecryptMSGAsync(string msgFileInput)
+        {
+            void VisitEntries(CFStorage st, CFStorage? parent)
+            {
+                bool reVisit = false;
+
+                st.VisitEntries(item =>
+                {
+                    if (reVisit) return;
+
+                    if (item is CFStorage storage && storage.Name.StartsWith("__attach_version1.0_#"))
+                    {
+                        try
+                        {
+                            var attachmentName = Encoding.Unicode.GetString(storage.GetStream("__substg1.0_3707001F").GetData()).TrimEnd('\0');
+
+                            if (attachmentName.EndsWith(".rpmsg", StringComparison.InvariantCultureIgnoreCase))
+                            {
+                                using var tmpMsgFile = new TempFileWrapper(".msg");
+                                using (var fs = File.Create(tmpMsgFile))
+                                {
+                                    MSGUtils.EmplaceAttachmentInMsgFile(MSGTemplateFile, storage.GetStream("__substg1.0_37010102").GetData(), fs);
+                                }
+
+                                var msgLabel = GetLabelAsync(tmpMsgFile).Result;
+                                var inspectResult = InspectMSGAsync(tmpMsgFile).Result;
+
+                                if (inspectResult != null)
+                                {
+                                    var htmlCode = inspectResult.Body["{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag ".Length..^2];
+                                    st.GetStream("__substg1.0_10130102").SetData(Encoding.ASCII.GetBytes(htmlCode));
+
+                                    if (msgLabel != null && AppendSensitivityLabelToNames)
+                                    {
+                                        var subject = Encoding.Unicode.GetString(st.GetStream("__substg1.0_0037001F").GetData());
+                                        st.GetStream("__substg1.0_0E1D001F").SetData(Encoding.Unicode.GetBytes($"[{msgLabel}]{subject}"));
+                                    }
+
+                                    st.Delete(storage.Name);
+
+                                    // TODO: CHECK BEHAVIOUR WITH MESSAGES AS ATTACHMENTS!
+                                    for (int i = 0; i < inspectResult.Attachments.Count; i++)
+                                    {
+                                        var att = inspectResult.Attachments[i];
+                                        var attst = st.AddStorage($"__attach_version1.0_#{i:X8}");
+
+                                        var p = attst.GetPrimitiveTypesProperties<AttachmentProperties>();
+                                        //p.AppendProperty()
+                                        attst.SetPrimitiveTypesProperties(p);
+
+                                        // Adding attachment name
+                                        attst.SetStringProperty(MsgPropertyIds.PidTagAttachLongFilename, att.Name);
+                                        attst.SetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, att.Content);
+                                    }
+
+                                    if (parent == null)
+                                    {
+                                        var p = st.GetPrimitiveTypesProperties<TopLevelProperties>();
+                                        p.AttachmentCount = (uint)inspectResult.Attachments.Count;
+                                        p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
+                                        st.SetPrimitiveTypesProperties(p);
+                                    }
+                                    else
+                                    {
+                                        var p = st.GetPrimitiveTypesProperties<EmbeddedMessageProperties>();
+                                        p.AttachmentCount = (uint)inspectResult.Attachments.Count;
+                                        p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
+                                        st.SetPrimitiveTypesProperties(p);
+                                    }
+
+                                    reVisit = true;
+                                }
+                                return;
+                            }
+
+                            var attachment = storage.GetStream("__substg1.0_37010102");
+                            using var tmpAttachmentFile = new TempFileWrapper(attachmentName);
+                            File.WriteAllBytes(tmpAttachmentFile, attachment.GetData());
+                            using var tmpProcessesAttachmentFile = RecursiveProcessForDecryptionAsync(tmpAttachmentFile).Result;
+                            attachment.SetData(File.ReadAllBytes(tmpProcessesAttachmentFile));
+                            if (tmpProcessesAttachmentFile.Label != null && AppendSensitivityLabelToNames)
+                            {
+                                attachmentName = $"[{tmpProcessesAttachmentFile.Label}]{attachmentName}";
+                                storage.GetStream("__substg1.0_3707001F").SetData(Encoding.Unicode.GetBytes(attachmentName + "\0"));
+                            }
+                        }
+                        catch (CFItemNotFound)
+                        {
+                            try
+                            {
+                                var nestedMsg = storage.GetStorage("__substg1.0_3701000D");
+
+                                VisitEntries(nestedMsg, storage);
+                            }
+                            catch { }
+                        }
+                    }
+                }, recursive: false);
+
+                if (reVisit)
+                    VisitEntries(st, parent);
+            }
+
+            var output = await DecryptFileAsync(msgFileInput);
+            using (var fs = File.Open(output, FileMode.Open))
+            {
+                using var cf = new CompoundFile(fs, CFSUpdateMode.Update, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
+
+                VisitEntries(cf.RootStorage, null);
+
+                if (output.Label != null && AppendSensitivityLabelToNames)
+                {
+                    var subject = Encoding.Unicode.GetString(cf.RootStorage.GetStream("__substg1.0_0037001F").GetData());
+                    cf.RootStorage.GetStream("__substg1.0_0E1D001F").SetData(Encoding.Unicode.GetBytes($"[{output.Label}]{subject}"));
+                }
+
+                cf.Commit();
+            }
+
+            return output;
         }
 
         public async Task<WholeMessage?> InspectMSGAsync(string msgFileInput)
@@ -162,6 +419,9 @@ namespace MIPConsoleTools
             
             try
             {
+                if (fileHandler.Label == null)
+                    return null;
+
                 return $"{fileHandler.Label?.Label?.Parent?.Name} - {fileHandler.Label?.Label?.Name}";
             }
             catch (Exception)

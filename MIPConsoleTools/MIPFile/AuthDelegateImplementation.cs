@@ -69,7 +69,7 @@ namespace MIPConsoleTools
 
                 var cclientBuilder = ConfidentialClientApplicationBuilder.Create(_appInfo.ApplicationId)
 #if USE_WINHTTP
-                .WithHttpClientFactory(new WinHttpMsalHttpClientFactory())
+                    .WithHttpClientFactory(new WinHttpMsalHttpClientFactory())
 #endif
                     .WithAuthority(authority);
 

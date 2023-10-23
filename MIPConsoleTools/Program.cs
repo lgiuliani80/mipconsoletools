@@ -11,7 +11,7 @@ var host = Host.CreateDefaultBuilder(args)
         {
             options.IncludeScopes = true;
             options.SingleLine = true;
-            options.TimestampFormat = "[yyyy-MM-dd HH:mm:ss.fff] x ";
+            options.TimestampFormat = "[yyyy-MM-dd HH:mm:ss.fff] ";
         });
     })
     .Build();
@@ -19,7 +19,7 @@ var host = Host.CreateDefaultBuilder(args)
 var config = host.Services.GetRequiredService<IConfiguration>();
 var log = host.Services.GetRequiredService<ILogger<Program>>();
 var miplog = host.Services.GetRequiredService<ILogger<MIPMain>>();
-string input = null!;
+string input = null!, output = null!;
 using var logScope = log.BeginScope("[mtid={tid,5}]", new ManagedThreadIdGenerator());
 
 log.LogInformation("ClientId = {clientId}", config["MIP:ClientId"]);
@@ -39,6 +39,7 @@ switch (config["action"])
 {
     case "decrypt":
         input = config["input"]!;
+        output = config["output"]!;
         
         if (input.EndsWith(".eml", StringComparison.InvariantCultureIgnoreCase))
         {
@@ -57,7 +58,8 @@ switch (config["action"])
             input = wrappedMsg;
         }
 
-        using (var fs = File.Create(config["output"]!))
+        /*
+        using (var fs = File.Create(output))
         {
             result = await mip.DecryptFileAsync(input, fs);
 
@@ -65,7 +67,11 @@ switch (config["action"])
             {
                 log.LogError("Failed to decrypt {input}", input);
             }
-        }
+        }*/
+
+        mip.MSGTemplateFile = config["msgTemplate"]!;
+        await mip.RecursiveDecryptAsync(input, output);
+
         break;
 
     case "listlabels":
