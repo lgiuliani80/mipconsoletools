@@ -58,19 +58,23 @@ switch (config["action"])
             input = wrappedMsg;
         }
 
-        /*
-        using (var fs = File.Create(output))
+        if (config["msgTemplate"] != null && config.GetValue("recursive", true))
         {
+            mip.MSGTemplateFile = config["msgTemplate"]!;
+            mip.AppendSensitivityLabelToNames = config.GetValue("appendSensitivityLabelToNames", false);
+            await mip.RecursiveDecryptAsync(input, output);
+        }
+        else
+        {
+            using var fs = File.Create(output);
             result = await mip.DecryptFileAsync(input, fs);
 
             if (!result)
             {
                 log.LogError("Failed to decrypt {input}", input);
             }
-        }*/
+        }
 
-        mip.MSGTemplateFile = config["msgTemplate"]!;
-        await mip.RecursiveDecryptAsync(input, output);
 
         break;
 

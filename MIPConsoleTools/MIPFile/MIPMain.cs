@@ -272,14 +272,15 @@ namespace MIPConsoleTools
                     {
                         try
                         {
-                            var attachmentName = Encoding.Unicode.GetString(storage.GetStream("__substg1.0_3707001F").GetData()).TrimEnd('\0');
+                            var attachmentName = storage.GetStringPropertyFailIfNotFound(MsgPropertyIds.PidTagAttachLongFilename);
 
                             if (attachmentName.EndsWith(".rpmsg", StringComparison.InvariantCultureIgnoreCase))
                             {
+                                var rpmsgBytes = storage.GetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary)!;
                                 using var tmpMsgFile = new TempFileWrapper(".msg");
                                 using (var fs = File.Create(tmpMsgFile))
                                 {
-                                    MSGUtils.EmplaceAttachmentInMsgFile(MSGTemplateFile, storage.GetStream("__substg1.0_37010102").GetData(), fs);
+                                    MSGUtils.EmplaceAttachmentInMsgFile(MSGTemplateFile, rpmsgBytes, fs);
                                 }
 
                                 var msgLabel = GetLabelAsync(tmpMsgFile).Result;
@@ -292,21 +293,24 @@ namespace MIPConsoleTools
 
                                     if (msgLabel != null && AppendSensitivityLabelToNames)
                                     {
-                                        var subject = Encoding.Unicode.GetString(st.GetStream("__substg1.0_0037001F").GetData());
-                                        st.GetStream("__substg1.0_0E1D001F").SetData(Encoding.Unicode.GetBytes($"[{msgLabel}]{subject}"));
+                                        var subject = st.GetStringProperty(MsgPropertyIds.PidTagSubject);
+                                        st.SetStringProperty(MsgPropertyIds.PidTagSubject, $"[{msgLabel}]{subject}");
                                     }
 
                                     st.Delete(storage.Name);
 
                                     // TODO: CHECK BEHAVIOUR WITH MESSAGES AS ATTACHMENTS!
+                                    /*
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
                                         var att = inspectResult.Attachments[i];
                                         var attst = st.AddStorage($"__attach_version1.0_#{i:X8}");
 
-                                        var p = attst.GetPrimitiveTypesProperties<AttachmentProperties>();
-                                        //p.AppendProperty()
-                                        attst.SetPrimitiveTypesProperties(p);
+                                        var pp = attst.GetPrimitiveTypesProperties<AttachmentProperties>();
+                                        pp.AppendProperty(MsgPropertyIds.PidTagObjectType, MsgPropertyTypes.PtypInteger32, MsgPropertyFlags.READWRITE).SetValue(7);
+                                        pp.AppendProperty(MsgPropertyIds.PidTagAttachmentLinkId, MsgPropertyTypes.PtypInteger32, MsgPropertyFlags.READWRITE).SetValue(0);
+                                        pp.AppendProperty(MsgPropertyIds.PidTagAttachMethod, MsgPropertyTypes.PtypInteger32, MsgPropertyFlags.READWRITE).SetValue(1);
+                                        attst.SetPrimitiveTypesProperties(pp);
 
                                         // Adding attachment name
                                         attst.SetStringProperty(MsgPropertyIds.PidTagAttachLongFilename, att.Name);
@@ -327,21 +331,25 @@ namespace MIPConsoleTools
                                         p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
                                         st.SetPrimitiveTypesProperties(p);
                                     }
+                                    */
 
                                     reVisit = true;
                                 }
                                 return;
                             }
 
-                            var attachment = storage.GetStream("__substg1.0_37010102");
+                            var attachment = storage.GetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary)!;
                             using var tmpAttachmentFile = new TempFileWrapper(attachmentName);
-                            File.WriteAllBytes(tmpAttachmentFile, attachment.GetData());
+                            File.WriteAllBytes(tmpAttachmentFile, attachment);
                             using var tmpProcessesAttachmentFile = RecursiveProcessForDecryptionAsync(tmpAttachmentFile).Result;
-                            attachment.SetData(File.ReadAllBytes(tmpProcessesAttachmentFile));
+                            if (tmpAttachmentFile.DeleteAtDispose)
+                            {
+                                storage.SetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, File.ReadAllBytes(tmpProcessesAttachmentFile));
+                            }
                             if (tmpProcessesAttachmentFile.Label != null && AppendSensitivityLabelToNames)
                             {
                                 attachmentName = $"[{tmpProcessesAttachmentFile.Label}]{attachmentName}";
-                                storage.GetStream("__substg1.0_3707001F").SetData(Encoding.Unicode.GetBytes(attachmentName + "\0"));
+                                storage.SetStringProperty(MsgPropertyIds.PidTagAttachLongFilename, attachmentName);
                             }
                         }
                         catch (CFItemNotFound)
@@ -370,8 +378,8 @@ namespace MIPConsoleTools
 
                 if (output.Label != null && AppendSensitivityLabelToNames)
                 {
-                    var subject = Encoding.Unicode.GetString(cf.RootStorage.GetStream("__substg1.0_0037001F").GetData());
-                    cf.RootStorage.GetStream("__substg1.0_0E1D001F").SetData(Encoding.Unicode.GetBytes($"[{output.Label}]{subject}"));
+                    var subject = cf.RootStorage.GetStringProperty(MsgPropertyIds.PidTagSubject);
+                    cf.RootStorage.SetStringProperty(MsgPropertyIds.PidTagSubject, $"[{output.Label}]{subject}");
                 }
 
                 cf.Commit();

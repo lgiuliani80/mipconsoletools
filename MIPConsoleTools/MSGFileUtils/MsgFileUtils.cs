@@ -302,6 +302,12 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             return null;
         }
 
+        public static string GetStringPropertyFailIfNotFound(this CFStorage cfstorage, MsgPropertyIds propertyId)
+        {
+            var streamName = GetStreamNameFromPropertyIdType(propertyId, MsgPropertyTypes.PtypString);
+            return Encoding.Unicode.GetString(cfstorage.GetStream(streamName).GetData()).TrimEnd('\0');
+        }
+
         public static void SetStringProperty(this CFStorage cfstorage, MsgPropertyIds propertyId, string newValue)
         {
             cfstorage.SetRawProperty(propertyId, MsgPropertyTypes.PtypString, Encoding.Unicode.GetBytes(newValue + '\0'));
