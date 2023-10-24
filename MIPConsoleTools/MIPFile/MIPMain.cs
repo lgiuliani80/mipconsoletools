@@ -16,6 +16,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net.Mail;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics.X86;
 using System.Text;
 using System.Threading.Tasks;
 using static LLoydsMonitorFolderForDecrypt.MSGFileUtils.MsgFileUtils;
@@ -26,6 +27,8 @@ namespace MIPConsoleTools
 {
     public class MIPMain : IDisposable
     {
+        const string MSG_ATTACHMENTS_LANGUAGE = "EnUs";
+
         readonly FileProfileSettings _profileSettings;
         readonly FileEngineSettings _engineSettings;
         readonly MipContext _mipContext;
@@ -35,7 +38,7 @@ namespace MIPConsoleTools
         readonly ILogger _logger;
 
         public bool AppendSensitivityLabelToNames { get; set; }
-        public string MSGTemplateFile { get; set; }
+        public string? MSGTemplateFile { get; set; }
 
         public MIPMain(ILogger logger, MIPL.LogLevel logLevel, string tenantId, string clientId, string appName, string appVersion, string username, string clientSecretOrCertificate, string locale = "en-US", string mipDataDir = "mip_data", string? delegatedUser = null, bool isInteractive = false)
         {
@@ -131,11 +134,11 @@ namespace MIPConsoleTools
             }
         }
 
-        public async Task<string> RecursiveDecryptAsync(string msgFileInput, string msgFileOutput)
+        public async Task<string> RecursiveDecryptAsync(string msgFileInput, string msgFileOutput, bool renameOutput)
         {
             using var output = await RecursiveProcessForDecryptionAsync(msgFileInput);
             
-            if (output.Label != null && AppendSensitivityLabelToNames)
+            if (output.Label != null && renameOutput)
             {
                 msgFileOutput = Path.Combine(Path.GetDirectoryName(msgFileOutput)!, $"[{output.Label}]{Path.GetFileName(msgFileOutput)}");
             }
@@ -171,8 +174,8 @@ namespace MIPConsoleTools
 
             public TempDirWrapper(string directoryName = "")
             {
-                DirectoryName = directoryName;
-                Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"attdir-{Guid.NewGuid()}{DirectoryName}"));
+                DirectoryName = Path.Combine(Path.GetTempPath(), $"attdir-{Guid.NewGuid()}{directoryName}");
+                Directory.CreateDirectory(DirectoryName);
             }
 
             public void Dispose()
@@ -258,11 +261,34 @@ namespace MIPConsoleTools
             }
         }
 
+        private static string FilterValid83Chars(string st)
+        {
+            return new string(st.ToCharArray().Where(x => char.IsAscii(x) && x != ' ' && x != '.').ToArray());
+        }
+
+        private static string Get83FileName(string fn)
+        {
+            var bn = Path.GetFileNameWithoutExtension(fn);
+            var ext = Path.GetExtension(fn).TrimStart('.');
+            var bnFiltered = FilterValid83Chars(bn);
+            var extFilt = FilterValid83Chars(ext);
+
+            ext = extFilt.Length > 3 ? extFilt[0..3] : extFilt;
+
+            if (bnFiltered != bn || bn.Length > 8)
+            {
+                bn = (bnFiltered.Length > 6 ? bnFiltered[0..6] : bnFiltered) + "~1";
+            }
+
+            return $"{bn}.{ext}";
+        }
+
         private async Task<FileNameWrapper> RecursiveDecryptMSGAsync(string msgFileInput)
         {
             void VisitEntries(CFStorage st, CFStorage? parent)
             {
                 bool reVisit = false;
+                bool isEmbedded = parent != null;
 
                 st.VisitEntries(item =>
                 {
@@ -276,6 +302,9 @@ namespace MIPConsoleTools
 
                             if (attachmentName.EndsWith(".rpmsg", StringComparison.InvariantCultureIgnoreCase))
                             {
+                                if (MSGTemplateFile == null)
+                                    throw new ArgumentException("MSGTemplateFile cannot be null if using recursive decryption on MSG files with attachments");
+
                                 var rpmsgBytes = storage.GetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary)!;
                                 using var tmpMsgFile = new TempFileWrapper(".msg");
                                 using (var fs = File.Create(tmpMsgFile))
@@ -288,50 +317,79 @@ namespace MIPConsoleTools
 
                                 if (inspectResult != null)
                                 {
-                                    var htmlCode = inspectResult.Body["{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag ".Length..^2];
-                                    st.GetStream("__substg1.0_10130102").SetData(Encoding.ASCII.GetBytes(htmlCode));
+                                    if (inspectResult.Body.StartsWith("{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag "))
+                                    {
+                                        var htmlCode = inspectResult.Body["{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag ".Length..^2];
+                                        var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
+                                        st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
+                                    }
+                                    else
+                                    {
+                                        // TODO: modificare il tipo di messaggio da HTML a Plain Text
+                                        st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBody, inspectResult.Body, Encoding.ASCII);
+                                    }
 
                                     if (msgLabel != null && AppendSensitivityLabelToNames)
                                     {
                                         var subject = st.GetStringProperty(MsgPropertyIds.PidTagSubject);
-                                        st.SetStringProperty(MsgPropertyIds.PidTagSubject, $"[{msgLabel}]{subject}");
+                                        st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagSubject, $"[{msgLabel}]{subject}");
+                                    }
+
+                                    AttachmentProperties ap = storage.GetPrimitiveTypesProperties<AttachmentProperties>();
+                                    var rpmsgCreationTime = ap.GetProperty(MsgPropertyIds.PidTagCreationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
+                                    var rpmsgLastModificationTime = ap.GetProperty(MsgPropertyIds.PidTagLastModificationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
+
+                                    foreach (var pp in ap.ReadProperties())
+                                    {
+                                        Console.WriteLine($"- PP: {(ushort)pp.PropertyId:X4} {pp.PropertyId,-30} - V: {BitConverter.ToUInt32(pp.RawValue),10} - {BitConverter.ToUInt32(pp.RawValue, 4),10}");
+                                        if (pp.PropertyType == MsgPropertyTypes.PtypString)
+                                        {
+                                            var sp = storage.GetStringPropertyFailIfNotFound(pp.PropertyId);
+                                            Console.WriteLine($"      {sp.Length}: {sp}");
+                                        }
                                     }
 
                                     st.Delete(storage.Name);
 
                                     // TODO: CHECK BEHAVIOUR WITH MESSAGES AS ATTACHMENTS!
-                                    /*
+                                    
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
                                         var att = inspectResult.Attachments[i];
                                         var attst = st.AddStorage($"__attach_version1.0_#{i:X8}");
 
+                                        // Primitive types properties
                                         var pp = attst.GetPrimitiveTypesProperties<AttachmentProperties>();
-                                        pp.AppendProperty(MsgPropertyIds.PidTagObjectType, MsgPropertyTypes.PtypInteger32, MsgPropertyFlags.READWRITE).SetValue(7);
-                                        pp.AppendProperty(MsgPropertyIds.PidTagAttachmentLinkId, MsgPropertyTypes.PtypInteger32, MsgPropertyFlags.READWRITE).SetValue(0);
-                                        pp.AppendProperty(MsgPropertyIds.PidTagAttachMethod, MsgPropertyTypes.PtypInteger32, MsgPropertyFlags.READWRITE).SetValue(1);
+                                        pp.GetProperty(MsgPropertyIds.PidTagAttachNumber, MsgPropertyTypes.PtypInteger32).SetValue(i);
+                                        pp.GetProperty(MsgPropertyIds.PidTagAttachMethod, MsgPropertyTypes.PtypInteger32).SetValue(1); // afByValue: The PidTagAttachDataBinary property (section 2.2.2.7) contains the attachment data.
+                                        pp.GetProperty(MsgPropertyIds.PidTagCreationTime, MsgPropertyTypes.PtypTime).SetValue(rpmsgCreationTime);
+                                        pp.GetProperty(MsgPropertyIds.PidTagLastModificationTime, MsgPropertyTypes.PtypTime).SetValue(rpmsgLastModificationTime);
+                                        pp.GetProperty(MsgPropertyIds.PidTagRenderingPosition, MsgPropertyTypes.PtypInteger32).SetValue(0xFFFFFFFF);
+                                        pp.GetProperty(MsgPropertyIds.PidTagAccessLevel, MsgPropertyTypes.PtypInteger32).SetValue(0);
                                         attst.SetPrimitiveTypesProperties(pp);
 
-                                        // Adding attachment name
-                                        attst.SetStringProperty(MsgPropertyIds.PidTagAttachLongFilename, att.Name);
-                                        attst.SetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, att.Content);
+                                        // String properties
+                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachFilename, Get83FileName(att.Name));
+                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachLongFilename, att.Name);
+                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachExtension, Path.GetExtension(att.Name));
+                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachMimeTag, MimeTypes.GetMimeType(att.Name));
+                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagDisplayName, att.Name);
+                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagLanguage, MSG_ATTACHMENTS_LANGUAGE);
+                                        // NOT AVAILABLE RIGHT NOW: attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, "??");
+
+                                        // Binary properties
+                                        attst.SetRawProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, att.Content, (uint)att.Content.Length);
                                     }
 
-                                    if (parent == null)
-                                    {
-                                        var p = st.GetPrimitiveTypesProperties<TopLevelProperties>();
-                                        p.AttachmentCount = (uint)inspectResult.Attachments.Count;
-                                        p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
-                                        st.SetPrimitiveTypesProperties(p);
-                                    }
-                                    else
-                                    {
-                                        var p = st.GetPrimitiveTypesProperties<EmbeddedMessageProperties>();
-                                        p.AttachmentCount = (uint)inspectResult.Attachments.Count;
-                                        p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
-                                        st.SetPrimitiveTypesProperties(p);
-                                    }
-                                    */
+                                    TopLevelOrEmbeddedProperties p = isEmbedded ? 
+                                        st.GetPrimitiveTypesProperties<EmbeddedMessageProperties>() : 
+                                        st.GetPrimitiveTypesProperties<TopLevelProperties>();
+
+                                    p.AttachmentCount = (uint)inspectResult.Attachments.Count;
+                                    p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
+
+                                    st.SetPrimitiveTypesProperties(p);
+                                    
 
                                     reVisit = true;
                                 }
@@ -344,12 +402,13 @@ namespace MIPConsoleTools
                             using var tmpProcessesAttachmentFile = RecursiveProcessForDecryptionAsync(tmpAttachmentFile).Result;
                             if (tmpAttachmentFile.DeleteAtDispose)
                             {
-                                storage.SetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, File.ReadAllBytes(tmpProcessesAttachmentFile));
+                                var attachmentBytes = File.ReadAllBytes(tmpProcessesAttachmentFile);
+                                storage.SetRawProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, attachmentBytes, (uint)attachment.Length);
                             }
                             if (tmpProcessesAttachmentFile.Label != null && AppendSensitivityLabelToNames)
                             {
                                 attachmentName = $"[{tmpProcessesAttachmentFile.Label}]{attachmentName}";
-                                storage.SetStringProperty(MsgPropertyIds.PidTagAttachLongFilename, attachmentName);
+                                storage.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachLongFilename, attachmentName);
                             }
                         }
                         catch (CFItemNotFound)
@@ -379,7 +438,7 @@ namespace MIPConsoleTools
                 if (output.Label != null && AppendSensitivityLabelToNames)
                 {
                     var subject = cf.RootStorage.GetStringProperty(MsgPropertyIds.PidTagSubject);
-                    cf.RootStorage.SetStringProperty(MsgPropertyIds.PidTagSubject, $"[{output.Label}]{subject}");
+                    cf.RootStorage.SetStringProperty<TopLevelProperties>(MsgPropertyIds.PidTagSubject, $"[{output.Label}]{subject}");
                 }
 
                 cf.Commit();
@@ -512,7 +571,7 @@ namespace MIPConsoleTools
             _ => MEL.LogLevel.Debug
         };
 
-        private MIPL.LogLevel LowerServerityIfNeeded(string message, MIPL.LogLevel ll)
+        private static MIPL.LogLevel LowerServerityIfNeeded(string message, MIPL.LogLevel ll)
         {
             if (message.Contains("https://self.events.data.microsoft.com"))
                 return MIPL.LogLevel.Trace;

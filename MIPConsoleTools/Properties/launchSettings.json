@@ -2,7 +2,7 @@
   "profiles": {
     "MIPConsoleTools": {
       "commandName": "Project",
-      "commandLineArgs": "--environment=Development --action=decrypt --input=\"C:\\Temp\\LLoyds\\IN1\\Outer Email.msg\" --output=\"C:\\Temp\\LLoyds\\IN1\\Outer Email.dec.msg\" --msgTemplate=\"c:\\temp\\lloyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=true"
+      "commandLineArgs": "--environment=Development --action=decrypt --input=\"C:\\Temp\\LLoyds\\IN1\\Test File.zip\" --output=\"C:\\Temp\\LLoyds\\IN1\\Outer Email.dec.msg\" --msgTemplate=\"c:\\temp\\lloyds\\IN0\\T0\\Test file out.zip\" --recursive=true --appendSensitivityLabelToNames=true"
     }
   }
 }

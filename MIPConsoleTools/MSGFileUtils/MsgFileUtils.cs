@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
@@ -27,7 +28,15 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                     Array.Copy(BitConverter.GetBytes(s), result, 2);
                     break;
 
+                case ushort s:
+                    Array.Copy(BitConverter.GetBytes(s), result, 2);
+                    break;
+
                 case int i:
+                    Array.Copy(BitConverter.GetBytes(i), result, 4);
+                    break;
+
+                case uint i:
                     Array.Copy(BitConverter.GetBytes(i), result, 4);
                     break;
 
@@ -41,6 +50,20 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
                 case long l:
                     Array.Copy(BitConverter.GetBytes(l), result, 8);
+                    break;
+
+                case ulong l:
+                    Array.Copy(BitConverter.GetBytes(l), result, 8);
+                    break;
+
+                case ValueTuple<int, int> v:
+                    Array.Copy(BitConverter.GetBytes(v.Item1), result, 4);
+                    Array.Copy(BitConverter.GetBytes(v.Item2), 0, result, 4, 4);
+                    break;
+
+                case ValueTuple<uint, uint> v:
+                    Array.Copy(BitConverter.GetBytes(v.Item1), result, 4);
+                    Array.Copy(BitConverter.GetBytes(v.Item2), 0, result, 4, 4);
                     break;
 
                 case DateTime dt:
@@ -78,10 +101,26 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                         }
                         break;
 
+                    case ushort _:
+                        if (PropertyType == MsgPropertyTypes.PtypInteger16)
+                        {
+                            var value = BitConverter.ToUInt16(record, 8);
+                            return (T)(object)value;
+                        }
+                        break;
+
                     case int _:
                         if (PropertyType == MsgPropertyTypes.PtypInteger32)
                         {
                             var value = BitConverter.ToInt32(record, 8);
+                            return (T)(object)value;
+                        }
+                        break;
+
+                    case uint _:
+                        if (PropertyType == MsgPropertyTypes.PtypInteger32)
+                        {
+                            var value = BitConverter.ToUInt32(record, 8);
                             return (T)(object)value;
                         }
                         break;
@@ -110,6 +149,14 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                         }
                         break;
 
+                    case ulong _:
+                        if (PropertyType == MsgPropertyTypes.PtypInteger64)
+                        {
+                            var value = BitConverter.ToUInt64(record, 8);
+                            return (T)(object)value;
+                        }
+                        break;
+
                     case DateTime _:
                         if (PropertyType == MsgPropertyTypes.PtypTime)
                         {
@@ -117,6 +164,12 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                             return (T)(object)DateTime.FromFileTime(value);
                         }
                         break;
+
+                    case ValueTuple<int, int> _:
+                        return (T)(object)(BitConverter.ToInt32(record, 8), BitConverter.ToInt32(record, 12));
+
+                    case ValueTuple<uint, uint> _:
+                        return (T)(object)(BitConverter.ToUInt32(record, 8), BitConverter.ToUInt32(record, 12));
 
                     case RawPropertyContent _:
                         return (T)(object)new RawPropertyContent
@@ -179,56 +232,18 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
                 return new PrimitiveProperty(this, propertyId, propertyType, propertyFlags, PropertiesStream.Length - 16);
             }
-        }
 
-        public class TopLevelProperties : AbstractPrimitiveTypesProperties
-        {
-            const int HEADER_SIZE = 32;
-
-            public TopLevelProperties() : base(new byte[HEADER_SIZE], HEADER_SIZE)
+            public PrimitiveProperty GetProperty(MsgPropertyIds propertyId, MsgPropertyTypes propertyType, MsgPropertyFlags propertyFlags = MsgPropertyFlags.READWRITE)
             {
-            }
+                var p = ReadProperties().FirstOrDefault(x => x.PropertyId == propertyId) ?? AppendProperty(propertyId, propertyType, propertyFlags);
 
-            public TopLevelProperties(byte[] bytes) : base(bytes, HEADER_SIZE)
-            {
-            }
-
-            public uint NextRecipientID 
-            {
-                get => BitConverter.ToUInt32(PropertiesStream, 8);
-                set => BitConverter.GetBytes(value).CopyTo(PropertiesStream, 8);
-            }
-
-            public uint NextAttachmentID
-            {
-                get => BitConverter.ToUInt32(PropertiesStream, 8);
-                set => BitConverter.GetBytes(value).CopyTo(PropertiesStream, 8);
-            }
-
-            public uint RecipientCount
-            {
-                get => BitConverter.ToUInt32(PropertiesStream, 12);
-                set => BitConverter.GetBytes(value).CopyTo(PropertiesStream, 12);
-            }
-
-            public uint AttachmentCount
-            {
-                get => BitConverter.ToUInt32(PropertiesStream, 12);
-                set => BitConverter.GetBytes(value).CopyTo(PropertiesStream, 12);
+                return p;
             }
         }
 
-        public class EmbeddedMessageProperties : AbstractPrimitiveTypesProperties
+        public abstract class TopLevelOrEmbeddedProperties : AbstractPrimitiveTypesProperties
         {
-            const int HEADER_SIZE = 24;
-
-            public EmbeddedMessageProperties() : base(new byte[HEADER_SIZE], HEADER_SIZE)
-            {
-            }
-
-            public EmbeddedMessageProperties(byte[] bytes) : base(bytes, HEADER_SIZE)
-            {
-            }
+            public TopLevelOrEmbeddedProperties(byte[] bytes, int offset) : base(bytes, offset) { }
 
             public uint NextRecipientID
             {
@@ -255,6 +270,33 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             }
         }
 
+        public class TopLevelProperties : TopLevelOrEmbeddedProperties
+        {
+            const int HEADER_SIZE = 32;
+
+            public TopLevelProperties() : base(new byte[HEADER_SIZE], HEADER_SIZE)
+            {
+            }
+
+            public TopLevelProperties(byte[] bytes) : base(bytes, HEADER_SIZE)
+            {
+            }
+
+        }
+
+        public class EmbeddedMessageProperties : TopLevelOrEmbeddedProperties
+        {
+            const int HEADER_SIZE = 24;
+
+            public EmbeddedMessageProperties() : base(new byte[HEADER_SIZE], HEADER_SIZE)
+            {
+            }
+
+            public EmbeddedMessageProperties(byte[] bytes) : base(bytes, HEADER_SIZE)
+            {
+            }
+        }
+
         public class AttachmentProperties : AbstractPrimitiveTypesProperties
         {
             const int HEADER_SIZE = 8;
@@ -269,13 +311,13 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
         }
 
 
-        public static T GetPrimitiveTypesProperties<T>(this CFStorage cfstorage) where T : AbstractPrimitiveTypesProperties, new()
+        public static T GetPrimitiveTypesProperties<T>(this CFStorage cfstorage) where T : AbstractPrimitiveTypesProperties
         {
             if (cfstorage.TryGetStream("__properties_version1.0", out var propDataStream))
             {
                 return (T)Activator.CreateInstance(typeof(T), propDataStream.GetData())!;
             }
-            return new T();
+            return (T)Activator.CreateInstance(typeof(T))!;
         }
 
         public static void SetPrimitiveTypesProperties<T>(this CFStorage cfstorage, T properties) where T : AbstractPrimitiveTypesProperties
@@ -292,6 +334,16 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             return $"__substg1.0_{(ushort)propertyId:X4}{(ushort)propertyType:X4}";
         }
 
+        public static (MsgPropertyIds, MsgPropertyTypes) GetPropertyIdTypeFromStreamName(string streamName)
+        {
+            var m = Regex.Match(streamName, "^__substg1.0_([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})$");
+
+            return m.Success ? (
+                (MsgPropertyIds)ushort.Parse(m.Groups[1].Value, System.Globalization.NumberStyles.HexNumber), 
+                (MsgPropertyTypes)ushort.Parse(m.Groups[2].Value, System.Globalization.NumberStyles.HexNumber)
+            ) : (MsgPropertyIds.PidTagNull, MsgPropertyTypes.PtypUnspecified);
+        }
+
         public static string? GetStringProperty(this CFStorage cfstorage, MsgPropertyIds propertyId)
         {
             var streamName = GetStreamNameFromPropertyIdType(propertyId, MsgPropertyTypes.PtypString);
@@ -302,15 +354,30 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             return null;
         }
 
-        public static string GetStringPropertyFailIfNotFound(this CFStorage cfstorage, MsgPropertyIds propertyId)
+        public static string GetStringPropertyFailIfNotFound(this CFStorage cfstorage, MsgPropertyIds propertyId, Encoding? encoding = null)
         {
             var streamName = GetStreamNameFromPropertyIdType(propertyId, MsgPropertyTypes.PtypString);
-            return Encoding.Unicode.GetString(cfstorage.GetStream(streamName).GetData()).TrimEnd('\0');
+            return (encoding ?? Encoding.Unicode).GetString(cfstorage.GetStream(streamName).GetData()).TrimEnd('\0');
         }
 
-        public static void SetStringProperty(this CFStorage cfstorage, MsgPropertyIds propertyId, string newValue)
+        public static void SetStringProperty<T>(this CFStorage cfstorage, MsgPropertyIds propertyId, string newValue, Encoding? encoding = null)
+             where T : AbstractPrimitiveTypesProperties
+
         {
-            cfstorage.SetRawProperty(propertyId, MsgPropertyTypes.PtypString, Encoding.Unicode.GetBytes(newValue + '\0'));
+            byte[] content = (encoding ?? Encoding.Unicode).GetBytes(newValue + '\0');
+            cfstorage.SetRawProperty<T>(propertyId, MsgPropertyTypes.PtypString, content, (uint) (content.Length + 2));
+        }
+
+        public static void SetStringProperty(this CFStorage cfstorage, bool isEmbedded, MsgPropertyIds propertyId, string newValue, Encoding? encoding = null)
+        {
+            if (isEmbedded)
+            {
+                SetStringProperty<EmbeddedMessageProperties>(cfstorage, propertyId, newValue, encoding);
+            }
+            else
+            {
+                SetStringProperty<TopLevelProperties>(cfstorage, propertyId, newValue, encoding);
+            }
         }
 
         public static byte[]? GetRawProperty(this CFStorage cfstorage, MsgPropertyIds propertyId, MsgPropertyTypes propertyType)
@@ -323,15 +390,35 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             return null;
         }
 
-        public static void SetRawProperty(this CFStorage cfstorage, MsgPropertyIds propertyId, MsgPropertyTypes propertyType, byte[] content)
+        public static void SetRawProperty<T>(this CFStorage cfstorage, MsgPropertyIds propertyId, MsgPropertyTypes propertyType, byte[] content, uint size, MsgPropertyFlags propertyFlags = MsgPropertyFlags.READWRITE)
+             where T : AbstractPrimitiveTypesProperties
         {
             var streamName = GetStreamNameFromPropertyIdType(propertyId, propertyType);
             if (!cfstorage.TryGetStream(streamName, out var propDataStream))
             {
-                propDataStream = cfstorage.AddStream("__properties_version1.0");
+                propDataStream = cfstorage.AddStream(streamName);
             }
             propDataStream.SetData(content);
+
+            uint reserved = (typeof(T) == typeof(EmbeddedMessageProperties)) ? (uint)0x01 : (uint)0x00;
+
+            var p = cfstorage.GetPrimitiveTypesProperties<T>();
+            p.GetProperty(propertyId, propertyType, propertyFlags).SetValue((size, reserved));
+            cfstorage.SetPrimitiveTypesProperties(p);
         }
+
+        public static void SetRawProperty(this CFStorage cfstorage, bool isEmbedded, MsgPropertyIds propertyId, MsgPropertyTypes propertyType, byte[] content, uint size, MsgPropertyFlags propertyFlags = MsgPropertyFlags.READWRITE)
+        {
+            if (isEmbedded)
+            {
+                SetRawProperty<EmbeddedMessageProperties>(cfstorage, propertyId, propertyType, content, size, propertyFlags);
+            }
+            else
+            {
+                SetRawProperty<TopLevelProperties>(cfstorage, propertyId, propertyType, content, size, propertyFlags);
+            }
+        }
+
     }
 
     public class RawPropertyContent

@@ -30,6 +30,10 @@
     <PackageReference Include="Microsoft.Identity.Client" Version="4.56.0" />
     <PackageReference Include="Microsoft.Identity.Client.Desktop" Version="4.56.0" />
     <PackageReference Include="Microsoft.InformationProtection.File" Version="1.13.161" />
+    <PackageReference Include="MimeTypes" Version="2.4.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="MsgReader" Version="5.4.3" />
   </ItemGroup>
 

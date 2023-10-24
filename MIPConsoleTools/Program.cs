@@ -62,7 +62,7 @@ switch (config["action"])
         {
             mip.MSGTemplateFile = config["msgTemplate"]!;
             mip.AppendSensitivityLabelToNames = config.GetValue("appendSensitivityLabelToNames", false);
-            await mip.RecursiveDecryptAsync(input, output);
+            await mip.RecursiveDecryptAsync(input, output, true);
         }
         else
         {
@@ -74,8 +74,6 @@ switch (config["action"])
                 log.LogError("Failed to decrypt {input}", input);
             }
         }
-
-
         break;
 
     case "listlabels":

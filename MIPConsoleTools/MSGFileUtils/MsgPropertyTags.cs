@@ -10,7 +10,19 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
     // Refer to https://interoperability.blob.core.windows.net/files/MS-OXPROPS/%5bMS-OXPROPS%5d.pdf for the complete list of tag property ids
     public enum MsgPropertyIds : ushort
     {
+        PidTagNull = 0x0000, // PtypUnspecified
+        PidTagBody = 0x1000, // PtypString
+        PidTagBodyHtml = 0x1013, // PtypString
+        PidTagAttachFilename = 0x3704, // PtypString
         PidTagClientSubmitTime = 0x0039, // PtypTime
+        PidTagAttachNumber = 0x0E21, // PtypInteger32
+        PidTagDisplayName = 0x3001, // PtypString
+        PidTagAttachExtension = 0x3703, // PtypString
+        PidTagAttachContentId = 0x3712, // PtypString
+        PidTagAttachMimeTag = 0x370E, // PtypString
+        PidTagLanguage = 0x3A0C, // PtypString
+        PidTagRenderingPosition = 0x370B, // PtypInteger32
+        PidTagAccessLevel = 0x0FF7, // PtypInteger32
         PidTagMessageDeliveryTime = 0x0E06, // PtypTime
         PidTagLastModificationTime = 0x3008, // PtypTime
         PidTagCreationTime = 0x3007, // PtypTime
@@ -36,6 +48,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
     // Refer https://interoperability.blob.core.windows.net/files/MS-OXCDATA/%5bMS-OXCDATA%5d.pdf for the complete list of property types
     public enum MsgPropertyTypes : ushort
     {
+        PtypUnspecified = 0x0000,
         PtypInteger16 = 0x0002,
         PtypInteger32 = 0x0003,
         PtypFloating32 = 0x0004,
@@ -65,7 +78,6 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
         PtypMultipleTime = 0x1040,
         PtypMultipleGuid = 0x1048,
         PtypMultipleBinary = 0x1102,
-        PtypUnspecified = 0x0000,
         PtypNull = 0x0001,
         PtypObject = 0x000D, // Or PtypEmbeddedTable
     }
