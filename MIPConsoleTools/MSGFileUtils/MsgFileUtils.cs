@@ -1,4 +1,6 @@
-﻿using OpenMcdf;
+﻿using MsgReader.Mime.Header;
+using MsgReader.Outlook;
+using OpenMcdf;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,6 +16,8 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
     public static class MsgFileUtils
     {
+        public const string ATTACHMENT_STORAGE_NAME_PREFIX = "__attach_version1.0_#";
+
         internal static byte[] EncodePropertyValue<T>(T value)
         {
             var result = new byte[8];
@@ -187,11 +191,16 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             {
                 EncodePropertyValue(value).CopyTo(PropertiesContainer.PropertiesStream, Index + 8);
             }
+
+            public void Remove()
+            {
+                PropertiesContainer.PropertiesStream = PropertiesContainer.PropertiesStream.Take(Index).Concat(PropertiesContainer.PropertiesStream.Skip(Index + 16)).ToArray();
+            }
         }
 
         public abstract class AbstractPrimitiveTypesProperties
         {
-            public byte[] PropertiesStream { get; private set; }
+            public byte[] PropertiesStream { get; internal set; }
             public int Offset { get; init; }
 
             public AbstractPrimitiveTypesProperties(byte[] bytes, int offset)
@@ -235,7 +244,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
             public PrimitiveProperty GetProperty(MsgPropertyIds propertyId, MsgPropertyTypes propertyType, MsgPropertyFlags propertyFlags = MsgPropertyFlags.READWRITE)
             {
-                var p = ReadProperties().FirstOrDefault(x => x.PropertyId == propertyId) ?? AppendProperty(propertyId, propertyType, propertyFlags);
+                var p = ReadProperties().FirstOrDefault(x => x.PropertyId == propertyId && x.PropertyType == propertyType) ?? AppendProperty(propertyId, propertyType, propertyFlags);
 
                 return p;
             }
@@ -419,6 +428,30 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             }
         }
 
+        public static void RemoveProperty<T>(this CFStorage cfstorage, MsgPropertyIds propertyId, MsgPropertyTypes propertyType)
+             where T : AbstractPrimitiveTypesProperties
+        {
+            var streamName = GetStreamNameFromPropertyIdType(propertyId, propertyType);
+            if (!cfstorage.TryGetStream(streamName, out var _))
+            {
+                cfstorage.Delete(streamName);
+            }
+            var p = cfstorage.GetPrimitiveTypesProperties<T>();
+            p.GetProperty(propertyId, propertyType).Remove();
+            cfstorage.SetPrimitiveTypesProperties(p);
+        }
+
+        public static void RemoveProperty(this CFStorage cfstorage, bool isEmbedded, MsgPropertyIds propertyId, MsgPropertyTypes propertyType)
+        {
+            if (isEmbedded)
+            {
+                RemoveProperty<EmbeddedMessageProperties>(cfstorage, propertyId, propertyType);
+            }
+            else
+            {
+                RemoveProperty<TopLevelProperties>(cfstorage, propertyId, propertyType);
+            }
+        }
     }
 
     public class RawPropertyContent

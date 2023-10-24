@@ -18,6 +18,7 @@ using System.Net.Mail;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics.X86;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using static LLoydsMonitorFolderForDecrypt.MSGFileUtils.MsgFileUtils;
 using MEL = Microsoft.Extensions.Logging;
@@ -28,6 +29,7 @@ namespace MIPConsoleTools
     public class MIPMain : IDisposable
     {
         const string MSG_ATTACHMENTS_LANGUAGE = "EnUs";
+        const string HTML_RFT_PREAMBLE = "{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag ";
 
         readonly FileProfileSettings _profileSettings;
         readonly FileEngineSettings _engineSettings;
@@ -294,7 +296,7 @@ namespace MIPConsoleTools
                 {
                     if (reVisit) return;
 
-                    if (item is CFStorage storage && storage.Name.StartsWith("__attach_version1.0_#"))
+                    if (item is CFStorage storage && storage.Name.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX))
                     {
                         try
                         {
@@ -304,6 +306,8 @@ namespace MIPConsoleTools
                             {
                                 if (MSGTemplateFile == null)
                                     throw new ArgumentException("MSGTemplateFile cannot be null if using recursive decryption on MSG files with attachments");
+
+                                var cids = new List<string>();
 
                                 var rpmsgBytes = storage.GetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary)!;
                                 using var tmpMsgFile = new TempFileWrapper(".msg");
@@ -317,16 +321,27 @@ namespace MIPConsoleTools
 
                                 if (inspectResult != null)
                                 {
-                                    if (inspectResult.Body.StartsWith("{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag "))
+                                    int? nativeBody = null;
+
+                                    if (inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE))
                                     {
-                                        var htmlCode = inspectResult.Body["{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag ".Length..^2];
+                                        var htmlCode = inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2];
                                         var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
+                                        cids = Regex.Matches(htmlCode, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
+                                        st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
+                                    }
+                                    else if (inspectResult.BodyType == BodyType.HTML)
+                                    {
+                                        var htmlCode = inspectResult.Body;
+                                        var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
+                                        cids = Regex.Matches(htmlCode, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
                                         st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
                                     }
                                     else
                                     {
-                                        // TODO: modificare il tipo di messaggio da HTML a Plain Text
-                                        st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBody, inspectResult.Body, Encoding.ASCII);
+                                        nativeBody = 1; // Plain text
+                                        st.RemoveProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary);
+                                        st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBody, inspectResult.Body);
                                     }
 
                                     if (msgLabel != null && AppendSensitivityLabelToNames)
@@ -339,24 +354,14 @@ namespace MIPConsoleTools
                                     var rpmsgCreationTime = ap.GetProperty(MsgPropertyIds.PidTagCreationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
                                     var rpmsgLastModificationTime = ap.GetProperty(MsgPropertyIds.PidTagLastModificationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
 
-                                    foreach (var pp in ap.ReadProperties())
-                                    {
-                                        Console.WriteLine($"- PP: {(ushort)pp.PropertyId:X4} {pp.PropertyId,-30} - V: {BitConverter.ToUInt32(pp.RawValue),10} - {BitConverter.ToUInt32(pp.RawValue, 4),10}");
-                                        if (pp.PropertyType == MsgPropertyTypes.PtypString)
-                                        {
-                                            var sp = storage.GetStringPropertyFailIfNotFound(pp.PropertyId);
-                                            Console.WriteLine($"      {sp.Length}: {sp}");
-                                        }
-                                    }
-
-                                    st.Delete(storage.Name);
+                                    st.Delete(storage.Name); // Remove the .rpmsg attachment
 
                                     // TODO: CHECK BEHAVIOUR WITH MESSAGES AS ATTACHMENTS!
                                     
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
                                         var att = inspectResult.Attachments[i];
-                                        var attst = st.AddStorage($"__attach_version1.0_#{i:X8}");
+                                        var attst = st.AddStorage($"{ATTACHMENT_STORAGE_NAME_PREFIX}{i:X8}");
 
                                         // Primitive types properties
                                         var pp = attst.GetPrimitiveTypesProperties<AttachmentProperties>();
@@ -375,7 +380,9 @@ namespace MIPConsoleTools
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachMimeTag, MimeTypes.GetMimeType(att.Name));
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagDisplayName, att.Name);
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagLanguage, MSG_ATTACHMENTS_LANGUAGE);
-                                        // NOT AVAILABLE RIGHT NOW: attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, "??");
+                                        // HEURISTIC!
+                                        if (i < cids.Count)
+                                            attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, cids[i]);
 
                                         // Binary properties
                                         attst.SetRawProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, att.Content, (uint)att.Content.Length);
@@ -387,6 +394,12 @@ namespace MIPConsoleTools
 
                                     p.AttachmentCount = (uint)inspectResult.Attachments.Count;
                                     p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
+                                    p.GetProperty(MsgPropertyIds.PidTagHasAttachments, MsgPropertyTypes.PtypBoolean).SetValue(p.AttachmentCount > 0);
+
+                                    if (nativeBody != null)
+                                    {
+                                        p.GetProperty(MsgPropertyIds.PidTagNativeBody, MsgPropertyTypes.PtypInteger32).SetValue(nativeBody.Value);
+                                    }
 
                                     st.SetPrimitiveTypesProperties(p);
                                     
@@ -623,16 +636,5 @@ namespace MIPConsoleTools
             public string Name { get; set; } = null!;
             public byte[] Content { get; set; } = null!;
         }
-    }
-
-    public static class BodyTypeExtensions
-    {
-        public static string GetMimeType(this BodyType bt) => bt switch
-        {
-            BodyType.HTML => "text/html",
-            BodyType.TXT => "text/plain",
-            BodyType.RTF => "application/rtf",
-            BodyType.UNKNOWN or _ => "application/octet-stream"
-        };
     }
 }
