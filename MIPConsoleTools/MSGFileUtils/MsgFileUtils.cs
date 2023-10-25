@@ -432,7 +432,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
              where T : AbstractPrimitiveTypesProperties
         {
             var streamName = GetStreamNameFromPropertyIdType(propertyId, propertyType);
-            if (!cfstorage.TryGetStream(streamName, out var _))
+            if (cfstorage.TryGetStream(streamName, out var _))
             {
                 cfstorage.Delete(streamName);
             }

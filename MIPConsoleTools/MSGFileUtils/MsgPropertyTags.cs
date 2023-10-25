@@ -45,6 +45,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
         PidTagAttachMethod = 0x3705, // PtypInteger32
         PidTagHasAttachments = 0x0E1B, // PtypBoolean
         PidTagNativeBody = 0x1016, // PtypInteger32
+        PidTagRtfCompressed = 0x1009, // PtypBinary
     }
 
     // Refer https://interoperability.blob.core.windows.net/files/MS-OXCDATA/%5bMS-OXCDATA%5d.pdf for the complete list of property types

@@ -323,24 +323,29 @@ namespace MIPConsoleTools
                                 {
                                     int? nativeBody = null;
 
-                                    if (inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE))
+                                    if (inspectResult.BodyType == BodyType.HTML || inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE))
                                     {
-                                        var htmlCode = inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2];
+                                        var htmlCode = inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE) ? inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2] : inspectResult.Body;
                                         var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
                                         cids = Regex.Matches(htmlCode, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
-                                        st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
-                                    }
-                                    else if (inspectResult.BodyType == BodyType.HTML)
-                                    {
-                                        var htmlCode = inspectResult.Body;
-                                        var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
-                                        cids = Regex.Matches(htmlCode, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
+
+                                        var rtfCompressed =  BitConverter.GetBytes(htmlCodeBytes.Length + 12)
+                                                     .Concat(BitConverter.GetBytes(htmlCodeBytes.Length))
+                                                     .Concat(Encoding.ASCII.GetBytes("MELA"))
+                                                     .Concat(BitConverter.GetBytes(0))
+                                                     .Concat(Encoding.ASCII.GetBytes(inspectResult.Body)).ToArray();
+
+                                        //nativeBody = 3; // HTML
+                                        //st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBody, htmlCode);
+                                        //st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, htmlCode);
+                                        st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagRtfCompressed, MsgPropertyTypes.PtypBinary, rtfCompressed, (uint)rtfCompressed.Length);
                                         st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
                                     }
                                     else
                                     {
                                         nativeBody = 1; // Plain text
                                         st.RemoveProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary);
+                                        st.RemoveProperty(isEmbedded, MsgPropertyIds.PidTagRtfCompressed, MsgPropertyTypes.PtypBinary);
                                         st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBody, inspectResult.Body);
                                     }
 
