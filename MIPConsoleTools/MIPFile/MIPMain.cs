@@ -323,22 +323,36 @@ namespace MIPConsoleTools
                                 {
                                     int? nativeBody = null;
 
-                                    if (inspectResult.BodyType == BodyType.HTML || inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE))
+                                    if (inspectResult.BodyType == BodyType.RTF)
                                     {
-                                        var htmlCode = inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE) ? inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2] : inspectResult.Body;
-                                        var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
-                                        cids = Regex.Matches(htmlCode, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
+                                        var rtfBytes = Encoding.ASCII.GetBytes(inspectResult.Body);
 
-                                        var rtfCompressed =  BitConverter.GetBytes(htmlCodeBytes.Length + 12)
-                                                     .Concat(BitConverter.GetBytes(htmlCodeBytes.Length))
+                                        var rtfCompressed =  BitConverter.GetBytes(rtfBytes.Length + 12)
+                                                     .Concat(BitConverter.GetBytes(rtfBytes.Length))
                                                      .Concat(Encoding.ASCII.GetBytes("MELA"))
                                                      .Concat(BitConverter.GetBytes(0))
-                                                     .Concat(Encoding.ASCII.GetBytes(inspectResult.Body)).ToArray();
+                                                     .Concat(rtfBytes).ToArray();
 
-                                        //nativeBody = 3; // HTML
-                                        //st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBody, htmlCode);
-                                        //st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, htmlCode);
+                                        //nativeBody = 2; // RTF (compressed)
                                         st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagRtfCompressed, MsgPropertyTypes.PtypBinary, rtfCompressed, (uint)rtfCompressed.Length);
+                                        
+                                        if (inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE))
+                                        {
+                                            var htmlCode = inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2];
+                                            var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
+
+                                            cids = Regex.Matches(inspectResult.Body, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
+                                            st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
+                                        }
+                                    }
+                                    else if (inspectResult.BodyType == BodyType.HTML)
+                                    {
+                                        var htmlCode = inspectResult.Body;
+                                        var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
+
+                                        nativeBody = 3; // HTML
+                                        cids = Regex.Matches(inspectResult.Body, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
+                                        st.RemoveProperty(isEmbedded, MsgPropertyIds.PidTagRtfCompressed, MsgPropertyTypes.PtypBinary);
                                         st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
                                     }
                                     else
@@ -353,6 +367,11 @@ namespace MIPConsoleTools
                                     {
                                         var subject = st.GetStringProperty(MsgPropertyIds.PidTagSubject);
                                         st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagSubject, $"[{msgLabel}]{subject}");
+                                        if (parent != null)
+                                        {
+                                            var dn = parent.GetStringProperty(MsgPropertyIds.PidTagDisplayName);
+                                            parent.SetStringProperty(true, MsgPropertyIds.PidTagDisplayName, $"[{msgLabel}]{dn}");
+                                        }
                                     }
 
                                     AttachmentProperties ap = storage.GetPrimitiveTypesProperties<AttachmentProperties>();
@@ -427,6 +446,7 @@ namespace MIPConsoleTools
                             {
                                 attachmentName = $"[{tmpProcessesAttachmentFile.Label}]{attachmentName}";
                                 storage.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachLongFilename, attachmentName);
+                                storage.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagDisplayName, attachmentName);
                             }
                         }
                         catch (CFItemNotFound)
