@@ -475,8 +475,13 @@ namespace MIPConsoleTools
 
                 if (output.Label != null && AppendSensitivityLabelToNames)
                 {
-                    var subject = cf.RootStorage.GetStringProperty(MsgPropertyIds.PidTagSubject);
+                    var originalSubject = cf.RootStorage.GetStringProperty(MsgPropertyIds.PidTagOriginalSubject);
+                    var subject = cf.RootStorage.GetStringProperty(MsgPropertyIds.PidTagSubject) ?? "";
                     cf.RootStorage.SetStringProperty<TopLevelProperties>(MsgPropertyIds.PidTagSubject, $"[{output.Label}]{subject}");
+                    if (originalSubject == null)
+                    {
+                        cf.RootStorage.SetStringProperty<TopLevelProperties>(MsgPropertyIds.PidTagOriginalSubject, subject);
+                    }
                 }
 
                 cf.Commit();

@@ -1,11 +1,7 @@
-﻿using MsgReader.Mime.Header;
-using MsgReader.Outlook;
-using OpenMcdf;
+﻿using OpenMcdf;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -247,6 +243,11 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 var p = ReadProperties().FirstOrDefault(x => x.PropertyId == propertyId && x.PropertyType == propertyType) ?? AppendProperty(propertyId, propertyType, propertyFlags);
 
                 return p;
+            }
+
+            public PrimitiveProperty? GetPropertyOrNull(MsgPropertyIds propertyId, MsgPropertyTypes propertyType)
+            {
+                return ReadProperties().FirstOrDefault(x => x.PropertyId == propertyId && x.PropertyType == propertyType);
             }
         }
 
