@@ -380,8 +380,6 @@ namespace MIPConsoleTools
 
                                     st.Delete(storage.Name); // Remove the .rpmsg attachment
 
-                                    // TODO: CHECK BEHAVIOUR WITH MESSAGES AS ATTACHMENTS!
-                                    
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
                                         var att = inspectResult.Attachments[i];
