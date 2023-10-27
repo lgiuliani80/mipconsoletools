@@ -242,13 +242,13 @@ namespace MIPConsoleTools
 
                             if (AppendSensitivityLabelToNames && decryptResult.Label != null)
                             {
-                                File.Move(file, $"[{decryptResult.Label}]{file}", overwrite: true);
+                                File.Move(file, Path.Combine(Path.GetDirectoryName(file)!, $"[{decryptResult.Label}]{Path.GetFileName(file)}"), overwrite: true);
                                 processed = true;
                             }
                         }
                         if (processed)
                         {
-                            var tmpZipToEmplace = new TempFileWrapper(containerFile);
+                            var tmpZipToEmplace = new TempFileWrapper(Path.GetFileName(containerFile));
                             ZipFile.CreateFromDirectory(tmpFolder, tmpZipToEmplace);
                             return tmpZipToEmplace;
                         }
