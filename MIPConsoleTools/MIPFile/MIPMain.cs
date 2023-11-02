@@ -451,9 +451,10 @@ namespace MIPConsoleTools
                         {
                             try
                             {
-                                var nestedMsg = storage.GetStorage("__substg1.0_3701000D");
-
-                                VisitEntries(nestedMsg, storage);
+                                if (storage.TryGetStorage("__substg1.0_3701000D", out var nestedMsg))
+                                {
+                                    VisitEntries(nestedMsg, storage);
+                                }
                             }
                             catch (Exception ex) 
                             {
