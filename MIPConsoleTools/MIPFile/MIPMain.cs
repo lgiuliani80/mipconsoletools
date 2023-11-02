@@ -435,7 +435,7 @@ namespace MIPConsoleTools
                             using var tmpAttachmentFile = new TempFileWrapper(attachmentName);
                             File.WriteAllBytes(tmpAttachmentFile, attachment);
                             using var tmpProcessesAttachmentFile = RecursiveProcessForDecryptionAsync(tmpAttachmentFile).Result;
-                            if (tmpAttachmentFile.DeleteAtDispose)
+                            if (tmpProcessesAttachmentFile.DeleteAtDispose)
                             {
                                 var attachmentBytes = File.ReadAllBytes(tmpProcessesAttachmentFile);
                                 storage.SetRawProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, attachmentBytes, (uint)attachment.Length);
@@ -455,7 +455,12 @@ namespace MIPConsoleTools
 
                                 VisitEntries(nestedMsg, storage);
                             }
-                            catch { }
+                            catch (Exception ex) 
+                            {
+                                var displayName = storage.GetStringProperty(MsgPropertyIds.PidTagDisplayName) ?? "?";
+                                _logger.LogError(ex, "Unable to process attachment '{attachmentName}' in storage {storage} - input file: '{input}'", displayName, storage.Name, msgFileInput);
+                                throw;
+                            }
                         }
                     }
                 }, recursive: false);
