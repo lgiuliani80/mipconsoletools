@@ -8,19 +8,23 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="appsettings-CostaCRMTest.json" />
+    <None Remove="appsettings.Development-CostaCRMTest.json" />
     <None Remove="appsettings.Development.json" />
+    <None Remove="appsettings.Development2.json" />
     <None Remove="appsettings.json" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="appsettings.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
     <Content Include="appsettings.Development.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-    <Content Include="appsettings-CostaCRMTest.json">
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.Development2.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.Development-CostaCRMTest.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

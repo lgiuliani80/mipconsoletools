@@ -378,12 +378,14 @@ namespace MIPConsoleTools
                                     var rpmsgCreationTime = ap.GetProperty(MsgPropertyIds.PidTagCreationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
                                     var rpmsgLastModificationTime = ap.GetProperty(MsgPropertyIds.PidTagLastModificationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
 
+                                    int attachmentIndex = int.Parse(storage.Name.Substring(storage.Name.Length - 8, 8), System.Globalization.NumberStyles.HexNumber);
+
                                     st.Delete(storage.Name); // Remove the .rpmsg attachment
 
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
                                         var att = inspectResult.Attachments[i];
-                                        var attst = st.AddStorage($"{ATTACHMENT_STORAGE_NAME_PREFIX}{i:X8}");
+                                        var attst = st.AddStorage($"{ATTACHMENT_STORAGE_NAME_PREFIX}{attachmentIndex++:X8}");
 
                                         // Primitive types properties
                                         var pp = attst.GetPrimitiveTypesProperties<AttachmentProperties>();
@@ -414,9 +416,9 @@ namespace MIPConsoleTools
                                         st.GetPrimitiveTypesProperties<EmbeddedMessageProperties>() : 
                                         st.GetPrimitiveTypesProperties<TopLevelProperties>();
 
-                                    p.AttachmentCount = (uint)inspectResult.Attachments.Count;
-                                    p.NextAttachmentID = (uint)inspectResult.Attachments.Count;
-                                    p.GetProperty(MsgPropertyIds.PidTagHasAttachments, MsgPropertyTypes.PtypBoolean).SetValue(p.AttachmentCount > 0);
+                                    p.AttachmentCount = (uint)attachmentIndex;
+                                    p.NextAttachmentID = (uint)attachmentIndex;
+                                    p.GetProperty(MsgPropertyIds.PidTagHasAttachments, MsgPropertyTypes.PtypBoolean).SetValue(attachmentIndex > 0);
 
                                     if (nativeBody != null)
                                     {
