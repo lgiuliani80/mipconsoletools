@@ -142,7 +142,7 @@ namespace MIPConsoleTools
             
             if (output.Label != null && renameOutput)
             {
-                msgFileOutput = Path.Combine(Path.GetDirectoryName(msgFileOutput)!, $"[{output.Label}]{Path.GetFileName(msgFileOutput)}");
+                msgFileOutput = Path.Combine(Path.GetDirectoryName(msgFileOutput)!, $"[{CleanFileName(output.Label)}]{Path.GetFileName(msgFileOutput)}");
             }
             
             File.Copy(output, msgFileOutput, overwrite: true);
@@ -242,7 +242,7 @@ namespace MIPConsoleTools
 
                             if (AppendSensitivityLabelToNames && decryptResult.Label != null)
                             {
-                                File.Move(file, Path.Combine(Path.GetDirectoryName(file)!, $"[{decryptResult.Label}]{Path.GetFileName(file)}"), overwrite: true);
+                                File.Move(file, Path.Combine(Path.GetDirectoryName(file)!, $"[{CleanFileName(decryptResult.Label)}]{Path.GetFileName(file)}"), overwrite: true);
                                 processed = true;
                             }
                         }
@@ -261,6 +261,11 @@ namespace MIPConsoleTools
                 default:
                     return await DecryptFileAsync(containerFile);
             }
+        }
+
+        private static string CleanFileName(string fileName)
+        {
+            return Path.GetInvalidFileNameChars().Aggregate(fileName, (current, c) => current.Replace(c.ToString(), string.Empty));
         }
 
         private static string FilterValid83Chars(string st)
@@ -538,7 +543,10 @@ namespace MIPConsoleTools
                 if (fileHandler.Label == null)
                     return null;
 
-                return $"{fileHandler.Label?.Label?.Parent?.Name} - {fileHandler.Label?.Label?.Name}";
+                return string.Join(" - ", new string?[] { 
+                    fileHandler.Label?.Label?.Parent?.Name, 
+                    fileHandler.Label?.Label?.Name 
+                }.Where(x => !string.IsNullOrWhiteSpace(x)));
             }
             catch (Exception)
             {
@@ -629,6 +637,15 @@ namespace MIPConsoleTools
                 return MIPL.LogLevel.Info;
 
             if (message.Contains("File is not protected"))
+                return MIPL.LogLevel.Info;
+
+            if (message.Contains("Start calling error callback for API: file_get_decrypted_file_path_async"))
+                return MIPL.LogLevel.Info;
+
+            if (message.Contains("GetAppDataNode - Failed to get ID in PL app data section, parsing failed"))
+                return MIPL.LogLevel.Info;
+
+            if (message.Contains("GetAppDataNode - Failed to get TenantId in PL app data section, parsing failed"))
                 return MIPL.LogLevel.Info;
 
             return ll;
