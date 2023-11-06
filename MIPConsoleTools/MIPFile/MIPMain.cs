@@ -194,14 +194,14 @@ namespace MIPConsoleTools
         {
         }
 
-        public async Task<DecryptResult> DecryptFileAsync(string msgFileInput)
+        public async Task<DecryptResult> DecryptFileAsync(string msgFileInput, bool forceTemporaryOutput = false)
         {
             var label = await GetLabelAsync(msgFileInput);
             using var ms = new MemoryStream();
             var result = await DecryptFileAsync(msgFileInput, ms);
-            if (result)
+            if (result || forceTemporaryOutput)
             {
-                string tmpFile = Path.GetTempFileName();
+                string tmpFile = Path.Combine(Path.GetTempPath(), $"dec-{Guid.NewGuid()}{Path.GetExtension(msgFileInput)}");
                 using var fs = File.Create(tmpFile);
                 ms.Seek(0, SeekOrigin.Begin);
                 await ms.CopyToAsync(fs);
@@ -472,7 +472,7 @@ namespace MIPConsoleTools
                     VisitEntries(st, parent);
             }
 
-            var output = await DecryptFileAsync(msgFileInput);
+            var output = await DecryptFileAsync(msgFileInput, forceTemporaryOutput: true);
             using (var fs = File.Open(output, FileMode.Open))
             {
                 using var cf = new CompoundFile(fs, CFSUpdateMode.Update, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
