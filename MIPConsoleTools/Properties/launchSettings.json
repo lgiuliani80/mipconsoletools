@@ -2,7 +2,7 @@
   "profiles": {
     "MIPConsoleTools": {
       "commandName": "Project",
-      "commandLineArgs": "--environment=Development --action=decrypt --input=\"C:\\Temp\\LLoyds\\IN1\\Final attachment.msg\" --output=\"C:\\Temp\\LLoyds\\IN1\\Final attachment.dec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=true"
+      "commandLineArgs": "--environment=Development --action=decrypt --input=\"C:\\Users\\giulianil\\OneDrive - Microsoft\\Desktop\\M2.msg\" --output=\"C:\\Users\\giulianil\\OneDrive - Microsoft\\Desktop\\M2.dec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=true"
     }
   }
 }

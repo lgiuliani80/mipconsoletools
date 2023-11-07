@@ -27,10 +27,13 @@ log.LogInformation("ClientId = {clientId}", config["MIP:ClientId"]);
 MIPMain mip = new (
     miplog,
     config.GetValue<Microsoft.InformationProtection.LogLevel>("MIP:LogLevel"),
-    config["MIP:TenantId"]!, config["MIP:ClientId"]!, config["MIP:AppName"]!, config["MIP:AppVersion"]!,
+    config["MIP:TenantId"] ?? "common", 
+    config["MIP:ClientId"] ?? AuthDelegateImplementation.AIP_CLIENT_ID,
+    config["MIP:AppName"] ?? "AzureInformationProtectionClient", 
+    config["MIP:AppVersion"] ?? "1.0",
     config["MIP:Username"]!, config["MIP:ClientSecret"]!, 
     delegatedUser: config["MIP:DelegatedUser"], 
-    isInteractive: config.GetValue("MIP:IsInteractive", false) 
+    isInteractive: config.GetValue("MIP:IsInteractive", false)
 );
 
 bool result = false;
@@ -57,6 +60,16 @@ switch (config["action"])
             }
             input = wrappedMsg;
         }
+        else if (input.EndsWith(".rpmsg", StringComparison.InvariantCultureIgnoreCase))
+        {
+            var wrappedMsg = Path.ChangeExtension(input, ".wrapped.msg");
+
+            using (var wrappedMsgFs = File.Create(wrappedMsg))
+            {
+                MSGUtils.EmplaceAttachmentInMsgFile(config["msgTemplate"]!, File.ReadAllBytes(input), wrappedMsgFs);
+            }
+            input = wrappedMsg;
+        }
 
         if (config["msgTemplate"] != null && config.GetValue("recursive", true))
         {
@@ -71,7 +84,7 @@ switch (config["action"])
 
             if (!result)
             {
-                log.LogError("Failed to decrypt {input}", input);
+                log.LogError("File {input} does not appear to be encrypted", input);
             }
         }
         break;

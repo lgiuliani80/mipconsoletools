@@ -9,8 +9,10 @@
 
   <ItemGroup>
     <None Remove="appsettings.Development-CostaCRMTest.json" />
+    <None Remove="appsettings.Development-INT.json" />
+    <None Remove="appsettings.Development-LLoyds-1.json" />
+    <None Remove="appsettings.Development-LLoyds-2.json" />
     <None Remove="appsettings.Development.json" />
-    <None Remove="appsettings.Development2.json" />
     <None Remove="appsettings.json" />
   </ItemGroup>
 
@@ -18,10 +20,16 @@
     <Content Include="appsettings.Development.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="appsettings.Development-INT.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="appsettings.Development-LLoyds-2.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-    <Content Include="appsettings.Development2.json">
+    <Content Include="appsettings.Development-LLoyds-1.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="appsettings.Development-CostaCRMTest.json">

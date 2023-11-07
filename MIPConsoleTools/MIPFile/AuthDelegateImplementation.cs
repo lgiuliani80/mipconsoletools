@@ -17,6 +17,7 @@ namespace MIPConsoleTools
     public class AuthDelegateImplementation : IAuthDelegate
     {
         public const string CERTIFICATE_PREFIX = "thumbprint:";
+        public const string AIP_CLIENT_ID = "c00e9d32-3c8d-4a7d-832b-029040e7db99";
 
         private readonly ILogger _logger;
         private readonly ApplicationInfo _appInfo;
@@ -43,7 +44,7 @@ namespace MIPConsoleTools
             if (_isInteractive || isForeignTenant)
             {
                 // THIS BRANCH OF THE CODE IS *NOT* OF INTEREST FOR LLOYDS - PLEASE DO NOT INCLUDE IN YOUR CODE
-                var pclientBuilder = PublicClientApplicationBuilder.Create("c00e9d32-3c8d-4a7d-832b-029040e7db99" /*_appInfo.ApplicationId*/);
+                var pclientBuilder = PublicClientApplicationBuilder.Create(AIP_CLIENT_ID);
                 pclientBuilder.WithAuthority(authority).WithRedirectUri("com.microsoft.azip://authorize");
 
                 var scopes = new string[] { resource[^1] == '/' ? $"{resource}.default" : $"{resource}/.default", "offline_access" };

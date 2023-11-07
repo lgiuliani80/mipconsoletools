@@ -383,9 +383,34 @@ namespace MIPConsoleTools
                                     var rpmsgCreationTime = ap.GetProperty(MsgPropertyIds.PidTagCreationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
                                     var rpmsgLastModificationTime = ap.GetProperty(MsgPropertyIds.PidTagLastModificationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
 
-                                    int attachmentIndex = int.Parse(storage.Name.Substring(storage.Name.Length - 8, 8), System.Globalization.NumberStyles.HexNumber);
+                                    TopLevelOrEmbeddedProperties p0 = isEmbedded ?
+                                        st.GetPrimitiveTypesProperties<EmbeddedMessageProperties>() :
+                                        st.GetPrimitiveTypesProperties<TopLevelProperties>();
 
-                                    st.Delete(storage.Name); // Remove the .rpmsg attachment
+                                    // DEBUG BEGIN
+                                    Console.WriteLine($"#### Type               = {p0.GetType().Name}");
+                                    Console.WriteLine($"#### Attachment Count   = {p0.AttachmentCount}");
+                                    Console.WriteLine($"#### Next Attachment ID = {p0.NextAttachmentID}");
+
+                                    st.VisitEntries(item =>
+                                    {
+                                        if (item is CFStorage storage && storage.Name.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX))
+                                        {
+                                            Console.WriteLine($"#### Found attachment: {storage.Name}");
+                                        }
+                                    }, false);
+                                    // DEBUG END
+
+                                    for (int i = 0; i < p0.NextAttachmentID; i++)
+                                    {
+                                        if (st.TryGetStorage($"{ATTACHMENT_STORAGE_NAME_PREFIX}{i:X8}", out CFStorage attachmentStorage))
+                                        {
+                                            Console.WriteLine($"#### Removed attachment: {attachmentStorage.Name}");
+                                            st.Delete(attachmentStorage.Name);
+                                        }
+                                    }
+
+                                    int attachmentIndex = 0;
 
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
