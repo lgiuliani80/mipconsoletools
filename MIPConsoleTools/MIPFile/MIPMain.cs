@@ -387,28 +387,25 @@ namespace MIPConsoleTools
                                         st.GetPrimitiveTypesProperties<EmbeddedMessageProperties>() :
                                         st.GetPrimitiveTypesProperties<TopLevelProperties>();
 
-                                    // DEBUG BEGIN
                                     Console.WriteLine($"#### Type               = {p0.GetType().Name}");
                                     Console.WriteLine($"#### Attachment Count   = {p0.AttachmentCount}");
                                     Console.WriteLine($"#### Next Attachment ID = {p0.NextAttachmentID}");
+
+                                    List<string> attachmentStorageNames = new();
 
                                     st.VisitEntries(item =>
                                     {
                                         if (item is CFStorage storage && storage.Name.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX))
                                         {
                                             Console.WriteLine($"#### Found attachment: {storage.Name}");
+                                            attachmentStorageNames.Add(storage.Name);
                                         }
                                     }, false);
-                                    // DEBUG END
 
-                                    for (int i = 0; i < p0.NextAttachmentID; i++)
+                                    attachmentStorageNames.ForEach(x =>
                                     {
-                                        if (st.TryGetStorage($"{ATTACHMENT_STORAGE_NAME_PREFIX}{i:X8}", out CFStorage attachmentStorage))
-                                        {
-                                            Console.WriteLine($"#### Removed attachment: {attachmentStorage.Name}");
-                                            st.Delete(attachmentStorage.Name);
-                                        }
-                                    }
+                                        st.Delete(x);
+                                    });
 
                                     int attachmentIndex = 0;
 
