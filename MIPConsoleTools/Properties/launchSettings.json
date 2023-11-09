@@ -2,7 +2,7 @@
   "profiles": {
     "MIPConsoleTools": {
       "commandName": "Project",
-      "commandLineArgs": "--environment=Development --action=decrypt --input=\"C:\\Temp\\LLoyds\\IN1\\normal attachments.eml\" --output=\"C:\\Temp\\LLoyds\\IN1\\normal attachments.dec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=true"
+      "commandLineArgs": "--environment=Development-LLoyds-1 --action=decrypt --input=\"C:\\Temp\\LLoyds\\IN1\\20 . HC Internal email with encrypted email.msg\" --output=\"C:\\Temp\\LLoyds\\IN1\\20 . HC Internal email with encrypted email.dec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=true"
     }
   }
 }

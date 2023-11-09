@@ -4,6 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MIPConsoleTools;
 using System.Runtime.CompilerServices;
+using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
+using System.Text.Json;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureLogging(logging => {
@@ -17,11 +20,13 @@ var host = Host.CreateDefaultBuilder(args)
     .Build();
 
 var config = host.Services.GetRequiredService<IConfiguration>();
+var env = host.Services.GetRequiredService<IHostEnvironment>();
 var log = host.Services.GetRequiredService<ILogger<Program>>();
 var miplog = host.Services.GetRequiredService<ILogger<MIPMain>>();
 string input = null!, output = null!;
 using var logScope = log.BeginScope("[mtid={tid,5}]", new ManagedThreadIdGenerator());
 
+log.LogInformation("Environment = {environment}", env.EnvironmentName);
 log.LogInformation("ClientId = {clientId}", config["MIP:ClientId"]);
 
 MIPMain mip = new (
@@ -75,7 +80,16 @@ switch (config["action"])
         {
             mip.MSGTemplateFile = config["msgTemplate"]!;
             mip.AppendSensitivityLabelToNames = config.GetValue("appendSensitivityLabelToNames", false);
-            await mip.RecursiveDecryptAsync(input, output, true);
+
+            var meta = new ItemMetadata();
+            await mip.RecursiveDecryptAsync(input, output, true, meta);
+
+            var jsonSer = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
+            Console.WriteLine("----->");
+            Console.WriteLine("Metadata:");
+            Console.WriteLine("------");
+            Console.WriteLine(jsonSer);
+            Console.WriteLine("-----<");
         }
         else
         {
@@ -91,10 +105,30 @@ switch (config["action"])
 
     case "listlabels":
         var labels = mip.GetLabels();
-        foreach (var label in labels)
+        Console.WriteLine();
+        Console.WriteLine("Labels:");
+        Console.WriteLine("-------");
+
+        static void RecursiveLabelEnumeration(ReadOnlyCollection<Microsoft.InformationProtection.Label> labels, int depth)
         {
-            log.LogInformation("Label: [{labelId}] {labelName} : {labelDescription} - Color: {labelColor}", label.Id, label.Name, label.Description, label.Color);
+            foreach (var label in labels)
+            {
+                Console.WriteLine("[{1}] {0} * {2,-30} - Color: {3}",
+                    new string(' ', depth * 4),
+                    label.Id,
+                    label.Name,
+                    label.Color);
+
+                if (!string.IsNullOrWhiteSpace(label.Description))
+                    Console.WriteLine(label.Description);
+
+                if (label.Children != null)
+                    RecursiveLabelEnumeration(label.Children, depth + 1);
+            }
         }
+
+        RecursiveLabelEnumeration(labels, 0);
+        Console.WriteLine("-------");
         break;
 
     case "delabel":

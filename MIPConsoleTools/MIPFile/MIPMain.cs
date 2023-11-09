@@ -136,9 +136,9 @@ namespace MIPConsoleTools
             }
         }
 
-        public async Task<string> RecursiveDecryptAsync(string msgFileInput, string msgFileOutput, bool renameOutput)
+        public async Task<string> RecursiveDecryptAsync(string msgFileInput, string msgFileOutput, bool renameOutput, ItemMetadata metadata)
         {
-            using var output = await RecursiveProcessForDecryptionAsync(msgFileInput);
+            using var output = await RecursiveProcessForDecryptionAsync(msgFileInput, metadata);
             
             if (output.Label != null && renameOutput)
             {
@@ -214,15 +214,18 @@ namespace MIPConsoleTools
             }
         }
 
-        private async Task<FileNameWrapper> RecursiveProcessForDecryptionAsync(string containerFile)
+        private async Task<FileNameWrapper> RecursiveProcessForDecryptionAsync(string containerFile, ItemMetadata meta)
         {
             var ext = Path.GetExtension(containerFile).ToLower();
+
+            meta.FileName ??= Path.GetFileName(containerFile);
+            meta.OriginalSize = new FileInfo(containerFile).Length;
 
             switch (ext)
             {
                 case ".msg":
                     {
-                        return await RecursiveDecryptMSGAsync(containerFile);
+                        return await RecursiveDecryptMSGAsync(containerFile, meta);
                     }
 
                 case ".zip":
@@ -232,7 +235,7 @@ namespace MIPConsoleTools
                         ZipFile.ExtractToDirectory(containerFile, tmpFolder);
                         foreach (var file in Directory.EnumerateFiles(tmpFolder, "*", SearchOption.AllDirectories))
                         {
-                            using var decryptResult = await RecursiveProcessForDecryptionAsync(file);
+                            using var decryptResult = await RecursiveProcessForDecryptionAsync(file, meta.AppendChild());
 
                             if (decryptResult.DeleteAtDispose)
                             {
@@ -259,7 +262,9 @@ namespace MIPConsoleTools
                     }
 
                 default:
-                    return await DecryptFileAsync(containerFile);
+                    var dr = await DecryptFileAsync(containerFile);
+                    meta.Label = dr.Label;
+                    return dr;
             }
         }
 
@@ -290,12 +295,19 @@ namespace MIPConsoleTools
             return $"{bn}.{ext}";
         }
 
-        private async Task<FileNameWrapper> RecursiveDecryptMSGAsync(string msgFileInput)
+        private async Task<FileNameWrapper> RecursiveDecryptMSGAsync(string msgFileInput, ItemMetadata meta)
         {
-            void VisitEntries(CFStorage st, CFStorage? parent)
+            void VisitEntries(CFStorage st, CFStorage? parent, ItemMetadata md)
             {
                 bool reVisit = false;
                 bool isEmbedded = parent != null;
+
+                if (md.OriginalSize == 0)
+                {
+                    var nestedSize = st.Size;
+                    st.VisitEntries(item => nestedSize += item.Size, true);
+                    md.OriginalSize = nestedSize;
+                }
 
                 st.VisitEntries(item =>
                 {
@@ -322,6 +334,8 @@ namespace MIPConsoleTools
                                 }
 
                                 var msgLabel = GetLabelAsync(tmpMsgFile).Result;
+                                md.Label = msgLabel;
+
                                 var inspectResult = InspectMSGAsync(tmpMsgFile).Result;
 
                                 if (inspectResult != null)
@@ -387,17 +401,12 @@ namespace MIPConsoleTools
                                         st.GetPrimitiveTypesProperties<EmbeddedMessageProperties>() :
                                         st.GetPrimitiveTypesProperties<TopLevelProperties>();
 
-                                    Console.WriteLine($"#### Type               = {p0.GetType().Name}");
-                                    Console.WriteLine($"#### Attachment Count   = {p0.AttachmentCount}");
-                                    Console.WriteLine($"#### Next Attachment ID = {p0.NextAttachmentID}");
-
                                     List<string> attachmentStorageNames = new();
 
                                     st.VisitEntries(item =>
                                     {
                                         if (item is CFStorage storage && storage.Name.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX))
                                         {
-                                            Console.WriteLine($"#### Found attachment: {storage.Name}");
                                             attachmentStorageNames.Add(storage.Name);
                                         }
                                     }, false);
@@ -408,11 +417,14 @@ namespace MIPConsoleTools
                                     });
 
                                     int attachmentIndex = 0;
+                                    int initialAttachmentIndex = attachmentIndex;
+                                    List<CFStorage> renderableAttachments = new();
 
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
                                         var att = inspectResult.Attachments[i];
                                         var attst = st.AddStorage($"{ATTACHMENT_STORAGE_NAME_PREFIX}{attachmentIndex++:X8}");
+                                        var ext = Path.GetExtension(att.Name);
 
                                         // Primitive types properties
                                         var pp = attst.GetPrimitiveTypesProperties<AttachmentProperties>();
@@ -427,16 +439,38 @@ namespace MIPConsoleTools
                                         // String properties
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachFilename, Get83FileName(att.Name));
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachLongFilename, att.Name);
-                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachExtension, Path.GetExtension(att.Name));
+                                        attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachExtension, ext);
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachMimeTag, MimeTypes.GetMimeType(att.Name));
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagDisplayName, att.Name);
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagLanguage, MSG_ATTACHMENTS_LANGUAGE);
+                                        
                                         // HEURISTIC!
-                                        if (i < cids.Count)
-                                            attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, cids[i]);
+                                        var cid = cids.FirstOrDefault(x => x.StartsWith(att.Name + "@", StringComparison.OrdinalIgnoreCase));
+                                        if (cid != null)
+                                        {
+                                            attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, cid);
+                                            cids.Remove(cid);
+                                        }
+                                        else if (ext.ToLower() == ".png" || ext.ToLower() == ".jpg" || ext.ToLower() == ".jpeg" || ext.ToLower() == ".gif")
+                                        {
+                                            renderableAttachments.Add(attst);
+                                        }
 
                                         // Binary properties
                                         attst.SetRawProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, att.Content, (uint)att.Content.Length);
+                                    }
+
+                                    // Try to map all remaining CIDs to image attachments
+                                    int cidIndex = 0;
+                                    foreach (var ast in renderableAttachments)
+                                    {
+                                        if (cidIndex >= cids.Count)
+                                            break;
+
+                                        var cid = cids[cidIndex];
+                                        ast.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, cid);
+
+                                        cidIndex++;
                                     }
 
                                     TopLevelOrEmbeddedProperties p = isEmbedded ? 
@@ -460,10 +494,12 @@ namespace MIPConsoleTools
                                 return;
                             }
 
+                            var childMeta = md.AppendChild();
+                            childMeta.FileName = attachmentName;
                             var attachment = storage.GetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary)!;
                             using var tmpAttachmentFile = new TempFileWrapper(attachmentName);
                             File.WriteAllBytes(tmpAttachmentFile, attachment);
-                            using var tmpProcessesAttachmentFile = RecursiveProcessForDecryptionAsync(tmpAttachmentFile).Result;
+                            using var tmpProcessesAttachmentFile = RecursiveProcessForDecryptionAsync(tmpAttachmentFile, childMeta).Result;
                             if (tmpProcessesAttachmentFile.DeleteAtDispose)
                             {
                                 var attachmentBytes = File.ReadAllBytes(tmpProcessesAttachmentFile);
@@ -478,17 +514,20 @@ namespace MIPConsoleTools
                         }
                         catch (CFItemNotFound)
                         {
+                            var displayName = storage.GetStringProperty(MsgPropertyIds.PidTagDisplayName);
+
                             try
                             {
                                 if (storage.TryGetStorage("__substg1.0_3701000D", out var nestedMsg))
                                 {
-                                    VisitEntries(nestedMsg, storage);
+                                    var childMeta = md.AppendChild();
+                                    childMeta.FileName = displayName;
+                                    VisitEntries(nestedMsg, storage, childMeta);
                                 }
                             }
                             catch (Exception ex) 
                             {
-                                var displayName = storage.GetStringProperty(MsgPropertyIds.PidTagDisplayName) ?? "?";
-                                _logger.LogError(ex, "Unable to process attachment '{attachmentName}' in storage {storage} - input file: '{input}'", displayName, storage.Name, msgFileInput);
+                                _logger.LogError(ex, "Unable to process attachment '{attachmentName}' in storage {storage} - input file: '{input}'", displayName ?? "?", storage.Name, msgFileInput);
                                 throw;
                             }
                         }
@@ -496,15 +535,16 @@ namespace MIPConsoleTools
                 }, recursive: false);
 
                 if (reVisit)
-                    VisitEntries(st, parent);
+                    VisitEntries(st, parent, md);
             }
 
             var output = await DecryptFileAsync(msgFileInput, forceTemporaryOutput: true);
+            meta.Label = output.Label;
             using (var fs = File.Open(output, FileMode.Open))
             {
                 using var cf = new CompoundFile(fs, CFSUpdateMode.Update, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
 
-                VisitEntries(cf.RootStorage, null);
+                VisitEntries(cf.RootStorage, null, meta);
 
                 if (output.Label != null && AppendSensitivityLabelToNames)
                 {
@@ -600,6 +640,7 @@ namespace MIPConsoleTools
                 fileHandler.DeleteLabel(new LabelingOptions
                 {
                     JustificationMessage = justification,
+                    AssignmentMethod = AssignmentMethod.Privileged,
                     IsDowngradeJustified = true
                 });
                 await fileHandler.CommitAsync(msgFileOutput);
@@ -710,6 +751,21 @@ namespace MIPConsoleTools
         {
             public string Name { get; set; } = null!;
             public byte[] Content { get; set; } = null!;
+        }
+    }
+
+    public class ItemMetadata
+    {
+        public long OriginalSize { get; set; }
+        public string? FileName { get; set; }
+        public string? Label { get; set; }
+        public List<ItemMetadata> Children { get; init; } = new();
+
+        public ItemMetadata AppendChild()
+        {
+            var c = new ItemMetadata();
+            Children.Add(c);
+            return c;
         }
     }
 }
