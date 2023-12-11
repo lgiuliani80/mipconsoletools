@@ -19,6 +19,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics.X86;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Buffers.Binary;
 using System.Threading.Tasks;
 using static LLoydsMonitorFolderForDecrypt.MSGFileUtils.MsgFileUtils;
 using MEL = Microsoft.Extensions.Logging;
@@ -309,6 +310,25 @@ namespace MIPConsoleTools
                     md.OriginalSize = nestedSize;
                 }
 
+                var msgHeaders = st.GetStringProperty(MsgPropertyIds.PidTagTransportMessageHeaders);
+
+                Match m;
+                if (msgHeaders != null && 
+                    md.Label == null && 
+                    (m = Regex.Match(msgHeaders, @"MSIP_Label_([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})_", RegexOptions.IgnoreCase)).Success)
+                {
+                    md.Label = m.Groups[1].Value;
+
+                    var lbl = GetAllLabels().FirstOrDefault(x => x.Id.ToLower() == md.Label.ToLower());
+                    if (lbl != null)
+                    {
+                        md.Label = string.Join(" - ", new string?[] {
+                                            lbl.Parent?.Name,
+                                            lbl.Name
+                                        }.Where(x => !string.IsNullOrWhiteSpace(x)));
+                    }
+                }
+
                 st.VisitEntries(item =>
                 {
                     if (reVisit) return;
@@ -322,7 +342,7 @@ namespace MIPConsoleTools
                             if (attachmentName.EndsWith(".rpmsg", StringComparison.InvariantCultureIgnoreCase))
                             {
                                 if (MSGTemplateFile == null)
-                                    throw new ArgumentException("MSGTemplateFile cannot be null if using recursive decryption on MSG files with attachments");
+                                    throw new ArgumentException($"{nameof(MSGTemplateFile)} cannot be null if using recursive decryption on MSG files with attachments");
 
                                 var cids = new List<string>();
 
@@ -332,9 +352,6 @@ namespace MIPConsoleTools
                                 {
                                     MSGUtils.EmplaceAttachmentInMsgFile(MSGTemplateFile, rpmsgBytes, fs);
                                 }
-
-                                var msgLabel = GetLabelAsync(tmpMsgFile).Result;
-                                md.Label = msgLabel;
 
                                 var inspectResult = InspectMSGAsync(tmpMsgFile).Result;
 
@@ -382,14 +399,14 @@ namespace MIPConsoleTools
                                         st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagBody, inspectResult.Body);
                                     }
 
-                                    if (msgLabel != null && AppendSensitivityLabelToNames)
+                                    if (md.Label != null && AppendSensitivityLabelToNames)
                                     {
                                         var subject = st.GetStringProperty(MsgPropertyIds.PidTagSubject);
-                                        st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagSubject, $"[{msgLabel}]{subject}");
+                                        st.SetStringProperty(isEmbedded, MsgPropertyIds.PidTagSubject, $"[{md.Label}]{subject}");
                                         if (parent != null)
                                         {
                                             var dn = parent.GetStringProperty(MsgPropertyIds.PidTagDisplayName);
-                                            parent.SetStringProperty(true, MsgPropertyIds.PidTagDisplayName, $"[{msgLabel}]{dn}");
+                                            parent.SetStringProperty(true, MsgPropertyIds.PidTagDisplayName, $"[{md.Label}]{dn}");
                                         }
                                     }
 
@@ -573,7 +590,7 @@ namespace MIPConsoleTools
             {
                 ret = new WholeMessage
                 {
-                    Body = DecodeString(msg.Body.ToArray(), (int)msg.CodePage),
+                    Body = DecompressRTF(msg.Body.ToArray()),
                     BodyType = msg.BodyType,
                     Attachments = new List<WholeMessage.Attachment>()
                 };
@@ -596,6 +613,24 @@ namespace MIPConsoleTools
             return _fileEngine.SensitivityLabels;
         }
 
+        public IEnumerable<Label> GetAllLabels()
+        {
+            static IEnumerable<Label> RecursiveGetLabels(IReadOnlyCollection<Label> labels)
+            {
+                foreach (var label in labels)
+                {
+                    yield return label;
+
+                    foreach (var l in RecursiveGetLabels(label.Children))
+                    {
+                        yield return l;
+                    }
+                }
+            }
+
+            return RecursiveGetLabels(_fileEngine.SensitivityLabels);
+        }
+
         public async Task<string?> GetLabelAsync(string msgFileInput)
         {
             using var fileHandler = await _fileEngine.CreateFileHandlerAsync(msgFileInput, msgFileInput, true);
@@ -616,13 +651,14 @@ namespace MIPConsoleTools
             }
         }
 
-        public async Task SetLabelAsync(string msgFileInput, string msgFileOutput, Label label, string justification)
+        public async Task SetLabelAsync(string msgFileInput, string msgFileOutput, Label label, string justification, bool privilegedAssignment = true)
         {
             using var fileHandler = await _fileEngine.CreateFileHandlerAsync(msgFileInput, msgFileInput, true);
 
             fileHandler.SetLabel(label, new LabelingOptions
             {
-                IsDowngradeJustified = true,
+                AssignmentMethod = privilegedAssignment ? AssignmentMethod.Privileged : AssignmentMethod.Auto,
+                IsDowngradeJustified = !string.IsNullOrWhiteSpace(justification),
                 JustificationMessage = justification
             }, new ProtectionSettings
             {
@@ -631,7 +667,7 @@ namespace MIPConsoleTools
             await fileHandler.CommitAsync(msgFileOutput);
         }
 
-        public async Task<bool> RemoveLabelAsync(string msgFileInput, string msgFileOutput, string justification)
+        public async Task<bool> RemoveLabelAsync(string msgFileInput, string msgFileOutput, string justification, bool privilegedAssignment = true)
         {
             using var fileHandler = await _fileEngine.CreateFileHandlerAsync(msgFileInput, msgFileInput, true);
             
@@ -639,9 +675,9 @@ namespace MIPConsoleTools
             {
                 fileHandler.DeleteLabel(new LabelingOptions
                 {
-                    JustificationMessage = justification,
-                    AssignmentMethod = AssignmentMethod.Privileged,
-                    IsDowngradeJustified = true
+                    AssignmentMethod = privilegedAssignment ? AssignmentMethod.Privileged : AssignmentMethod.Auto,
+                    IsDowngradeJustified = !string.IsNullOrWhiteSpace(justification),
+                    JustificationMessage = justification
                 });
                 await fileHandler.CommitAsync(msgFileOutput);
 
@@ -653,8 +689,98 @@ namespace MIPConsoleTools
             }
         }
 
-        private static string DecodeString(byte[] payload, int codepage) 
-            => Encoding.GetEncoding(codepage == 1200 ? 65001 : codepage).GetString(payload, 16, payload.Length - 16);
+        public static string DecompressRTF(byte[] payload)
+        {
+            const string INITIAL_DICTIONARY = "{\\rtf1\\ansi\\mac\\deff0\\deftab720{\\fonttbl;}{\\f0\\fnil \\froman \\fswiss \\fmodern \\fscript \\fdecor MS Sans SerifSymbolArialTimes New RomanCourier{\\colortbl\\red0\\green0\\blue0\r\n\\par \\pard\\plain\\f0\\fs20\\b\\i\\u\\tab\\tx";
+            const uint UNCOMPRESSED_RTF = 0x414c454d;
+            const uint COMPRESSED_RTF = 0x75465a4c;
+
+            var st = new MemoryStream(payload);
+            var dis = new BinaryReader(st);
+
+            var compSize = dis.ReadUInt32();
+            var rawSize = dis.ReadUInt32();
+            var compType = dis.ReadUInt32();
+            var crc = dis.ReadUInt32();
+
+            if (compType == UNCOMPRESSED_RTF) 
+            {
+                return Encoding.UTF8.GetString(payload, 16, payload.Length - 16);
+            } 
+            else if (compType != COMPRESSED_RTF) 
+            {
+                if (payload.Take(16).All(x => x == 13 || x == 10 || x == 9 || x >= 32))
+                {
+                    // Apparently it's a plain text stream, without the 16 bytes header of the compressed RTF stream [PidTagRtfCompressed] --> let's decode all the stream as UTF-8
+                    return Encoding.UTF8.GetString(payload);
+                }
+                else
+                {
+                    throw new IOException($"Invalid compression type: {compType:X8}");
+                }
+            }
+
+            var sb = new StringBuilder();
+            sb.Append(INITIAL_DICTIONARY);
+            var writeOffset = sb.Length;
+            var output = new StringBuilder();
+            var endRunReached = false;
+
+            while (!endRunReached)
+            {
+                var b = dis.ReadByte();
+
+                for (int i = 0; i < 8; i++)
+                {
+                    if ((b & 1) == 0)
+                    {
+                        var c = dis.ReadByte();
+                        output.Append((char)c);
+                        if (writeOffset < 4096)
+                        {
+                            sb.Append((char)c);
+                        }
+                        else
+                        {
+                            sb[writeOffset & 0xFFF] = (char)c;
+                        }
+                        writeOffset++;
+                    }
+                    else
+                    {
+                        var dicReference = BinaryPrimitives.ReverseEndianness(dis.ReadUInt16());
+                        var offset = (dicReference >> 4) & 0xFFF;
+                        if (offset == (writeOffset & 0xFFF))
+                        {
+                            endRunReached = true;
+                            break;
+                        }
+                        var length = (dicReference & 0xF) + 2;
+                        for (int j = 0; j < length; j++)
+                        {
+                            var c = sb[offset & 0xFFF];
+                            output.Append(c);
+                            offset++;
+                            if (writeOffset < 4096)
+                            {
+                                sb.Append(c);
+                            }
+                            else
+                            {
+                                sb[writeOffset & 0xFFF] = c;
+                            }
+                            writeOffset++;
+                        }
+                    }
+                    b >>= 1;
+                }
+            }
+
+            dis.Close();
+            st.Close();
+
+            return output.ToString();
+        }
 
         public void Dispose()
         {

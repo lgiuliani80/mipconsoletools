@@ -48,6 +48,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
         PidTagRtfCompressed = 0x1009, // PtypBinary
         PidTagOriginalSubject = 0x0049, // PtypString
         PidTagConversationTopic = 0x0070, // PtypString
+        PidTagMimeSkeleton = 0x64F0, // PtypBinary
     }
 
     // Refer https://interoperability.blob.core.windows.net/files/MS-OXCDATA/%5bMS-OXCDATA%5d.pdf for the complete list of property types

@@ -179,6 +179,11 @@ switch (config["action"])
         log.LogInformation("InspectFileAsync: body type = {bodyType}, attachments count = {attCount}", inspectResult?.BodyType, inspectResult?.Attachments?.Count);
         Console.WriteLine(inspectResult?.Body);
         break;
+
+    case "decompressrtf":
+        input = config["input"]!;
+        Console.WriteLine(MIPMain.DecompressRTF(File.ReadAllBytes(input)));
+        break;
 }
 
 log.LogInformation("END");
