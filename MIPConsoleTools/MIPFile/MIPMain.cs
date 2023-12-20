@@ -24,6 +24,7 @@ using System.Threading.Tasks;
 using static LLoydsMonitorFolderForDecrypt.MSGFileUtils.MsgFileUtils;
 using MEL = Microsoft.Extensions.Logging;
 using MIPL = Microsoft.InformationProtection;
+using MIPConsoleTools.Utils;
 
 namespace MIPConsoleTools
 {
@@ -151,50 +152,6 @@ namespace MIPConsoleTools
             return msgFileOutput;
         }
 
-        public record FileNameWrapper(string FileName, bool DeleteAtDispose) : IDisposable
-        {
-            public string? Label { get; set; }
-            public void Dispose()
-            {
-                if (DeleteAtDispose)
-                {
-                    try { File.Delete(FileName); } catch { }
-                }
-                GC.SuppressFinalize(this);
-            }
-
-            public static implicit operator string(FileNameWrapper w) => w.FileName;
-        }
-
-        public record TempFileWrapper(string OriginalFileName) 
-            : FileNameWrapper(Path.Combine(Path.GetTempPath(), $"att-{Guid.NewGuid()}-{OriginalFileName}"), true)
-        {
-        }
-
-        public class TempDirWrapper : IDisposable
-        {
-            public string DirectoryName { get; init; }
-
-            public TempDirWrapper(string directoryName = "")
-            {
-                DirectoryName = Path.Combine(Path.GetTempPath(), $"attdir-{Guid.NewGuid()}{directoryName}");
-                Directory.CreateDirectory(DirectoryName);
-            }
-
-            public void Dispose()
-            {
-                try { Directory.Delete(DirectoryName, recursive: true); } catch (Exception) { }
-                GC.SuppressFinalize(this);
-            }
-
-            public static implicit operator string(TempDirWrapper w) => w.DirectoryName;
-        }
-
-        public record DecryptResult(string DecryptedFileName, bool WasDecrypted) 
-            : FileNameWrapper(DecryptedFileName, WasDecrypted)
-        {
-        }
-
         public async Task<DecryptResult> DecryptFileAsync(string msgFileInput, bool forceTemporaryOutput = false)
         {
             var label = await GetLabelAsync(msgFileInput);
@@ -207,7 +164,7 @@ namespace MIPConsoleTools
                 ms.Seek(0, SeekOrigin.Begin);
                 await ms.CopyToAsync(fs);
 
-                return new DecryptResult(tmpFile, true) { Label = label };
+                return new DecryptResult(tmpFile, true) { Label = label, WasDecrypted = result };
             }
             else
             {
@@ -264,6 +221,7 @@ namespace MIPConsoleTools
 
                 default:
                     var dr = await DecryptFileAsync(containerFile);
+                    meta.IsEncrypted = dr.WasDecrypted;
                     meta.Label = dr.Label;
                     return dr;
             }
@@ -358,6 +316,8 @@ namespace MIPConsoleTools
                                 if (inspectResult != null)
                                 {
                                     int? nativeBody = null;
+
+                                    md.IsEncrypted = true;
 
                                     if (inspectResult.BodyType == BodyType.RTF)
                                     {
@@ -557,6 +517,8 @@ namespace MIPConsoleTools
 
             var output = await DecryptFileAsync(msgFileInput, forceTemporaryOutput: true);
             meta.Label = output.Label;
+            meta.IsEncrypted = output.WasDecrypted;
+
             using (var fs = File.Open(output, FileMode.Open))
             {
                 using var cf = new CompoundFile(fs, CFSUpdateMode.Update, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
@@ -883,6 +845,7 @@ namespace MIPConsoleTools
     public class ItemMetadata
     {
         public long OriginalSize { get; set; }
+        public bool IsEncrypted { get; set; }
         public string? FileName { get; set; }
         public string? Label { get; set; }
         public List<ItemMetadata> Children { get; init; } = new();

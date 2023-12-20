@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;
 using System.Text.Json;
+using MIPConsoleTools.CDF;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureLogging(logging => {
@@ -131,6 +132,11 @@ switch (config["action"])
         Console.WriteLine("-------");
         break;
 
+    case "getlabel":
+        var lblFromFile = await mip.GetLabelAsync(config["input"]!);
+        Console.WriteLine($"Label: {lblFromFile}");
+        break;
+
     case "delabel":
         result = await mip.RemoveLabelAsync(
             config["input"]!, config["output"]!, 
@@ -183,6 +189,15 @@ switch (config["action"])
     case "decompressrtf":
         input = config["input"]!;
         Console.WriteLine(MIPMain.DecompressRTF(File.ReadAllBytes(input)));
+        break;
+
+    case "getprotectioninfo":
+        var cdfInfo = CDFUtils.GetInformationProtectionData(config["input"]!);
+        Console.WriteLine($"TenantId        : {cdfInfo.TenantId}");
+        Console.WriteLine($"Owner           : {cdfInfo.Owner}");
+        Console.WriteLine($"LabelId         : {cdfInfo.LabelId}");
+        Console.WriteLine($"LabelName       : {cdfInfo.LabelName}");
+        Console.WriteLine($"LabelDescription: {cdfInfo.LabelDescription}");
         break;
 }
 
