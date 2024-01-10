@@ -192,6 +192,11 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             {
                 PropertiesContainer.PropertiesStream = PropertiesContainer.PropertiesStream.Take(Index).Concat(PropertiesContainer.PropertiesStream.Skip(Index + 16)).ToArray();
             }
+
+            public override string ToString()
+            {
+                return $"[{(ushort)PropertyId:X4}-{(ushort)PropertyType:X4} ({PropertyFlags})]";
+            }
         }
 
         public abstract class AbstractPrimitiveTypesProperties
@@ -248,6 +253,55 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             public PrimitiveProperty? GetPropertyOrNull(MsgPropertyIds propertyId, MsgPropertyTypes propertyType)
             {
                 return ReadProperties().FirstOrDefault(x => x.PropertyId == propertyId && x.PropertyType == propertyType);
+            }
+
+            public enum CleanMethod
+            {
+                TakeFirst,
+                TakeLast,
+            }
+
+            public bool CleanDuplicates(CleanMethod cleanMethod, ILogger? logger = null)
+            {
+                Dictionary<MsgPropertyIds, List<PrimitiveProperty>> propMap = new();
+                bool changed = false;
+
+                foreach (var p in ReadProperties())
+                {
+                    if (!propMap.ContainsKey(p.PropertyId))
+                    {
+                        propMap[p.PropertyId] = new List<PrimitiveProperty>();
+                    }
+                    // This will keep the properties in the order they appear in the stream,
+                    // i.e. the index property will monotonically increase.
+                    propMap[p.PropertyId].Add(p);
+                }
+
+                foreach (var dupl in propMap.Values.Where(x => x.Count > 1))
+                {
+                    var toKeep = cleanMethod switch
+                    {
+                        CleanMethod.TakeLast => dupl.Last(),
+                        CleanMethod.TakeFirst => dupl.First(),
+                        _ => throw new NotImplementedException(),
+                    };
+
+                    dupl.Reverse(); // Removal must take place starting from the hightest index,
+                                    // to keep the indexes of the remaining properties unchanged
+
+                    foreach (var p in dupl)
+                    {
+                        if (p != toKeep)
+                        {
+                            logger?.LogWarning("Removing duplicate property: {prop}", p);
+                            p.Remove();
+                            changed = true;
+                        }
+                    }
+                    logger?.LogWarning("Removed {nremoved} duplicates of property: {prop}", dupl.Count - 1, toKeep);
+                }
+
+                return changed;
             }
         }
 

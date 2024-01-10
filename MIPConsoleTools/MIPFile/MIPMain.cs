@@ -500,6 +500,10 @@ namespace MIPConsoleTools
                                     var childMeta = md.AppendChild();
                                     childMeta.FileName = displayName;
                                     VisitEntries(nestedMsg, storage, childMeta);
+
+                                    var np = nestedMsg.GetPrimitiveTypesProperties<EmbeddedMessageProperties>();
+                                    if (np.CleanDuplicates(AbstractPrimitiveTypesProperties.CleanMethod.TakeLast, _logger))
+                                        nestedMsg.SetPrimitiveTypesProperties(np);
                                 }
                             }
                             catch (Exception ex) 
