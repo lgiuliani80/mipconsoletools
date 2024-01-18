@@ -1,6 +1,8 @@
-﻿using OpenMcdf;
+﻿using Microsoft.Extensions.Logging;
+using OpenMcdf;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,6 +15,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
     public static class MsgFileUtils
     {
         public const string ATTACHMENT_STORAGE_NAME_PREFIX = "__attach_version1.0_#";
+        public const string RECIPIENT_STORAGE_NAME_PREFIX = "__recip_version1.0_#";
 
         internal static byte[] EncodePropertyValue<T>(T value)
         {
@@ -261,10 +264,9 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 TakeLast,
             }
 
-            public bool CleanDuplicates(CleanMethod cleanMethod, ILogger? logger = null)
+            public Dictionary<MsgPropertyIds, List<PrimitiveProperty>> GetPropertiesInstances()
             {
                 Dictionary<MsgPropertyIds, List<PrimitiveProperty>> propMap = new();
-                bool changed = false;
 
                 foreach (var p in ReadProperties())
                 {
@@ -276,6 +278,14 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                     // i.e. the index property will monotonically increase.
                     propMap[p.PropertyId].Add(p);
                 }
+
+                return propMap;
+            }
+
+            public bool CleanDuplicates(CleanMethod cleanMethod, ILogger? logger = null)
+            {
+                Dictionary<MsgPropertyIds, List<PrimitiveProperty>> propMap = GetPropertiesInstances();
+                bool changed = false;
 
                 foreach (var dupl in propMap.Values.Where(x => x.Count > 1))
                 {
@@ -400,7 +410,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
         public static (MsgPropertyIds, MsgPropertyTypes) GetPropertyIdTypeFromStreamName(string streamName)
         {
-            var m = Regex.Match(streamName, "^__substg1.0_([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})$");
+            var m = Regex.Match(streamName, "^__substg1.0_([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})");
 
             return m.Success ? (
                 (MsgPropertyIds)ushort.Parse(m.Groups[1].Value, System.Globalization.NumberStyles.HexNumber), 
@@ -507,6 +517,58 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 RemoveProperty<TopLevelProperties>(cfstorage, propertyId, propertyType);
             }
         }
+
+        public record PropertyLocation(List<CFStorage> Storages, MsgPropertyIds PropId);
+
+        public static Dictionary<PropertyLocation, List<PrimitiveProperty?>> ScanDuplicateProperties(this CFStorage cfStorage)
+        {
+            var retval = new Dictionary<PropertyLocation, List<PrimitiveProperty?>>();
+            ScanDuplicatePropertiesInternal(new List<CFStorage> { cfStorage }, retval);
+            return retval;
+        }
+
+        private static void ScanDuplicatePropertiesInternal(List<CFStorage> storagePath, Dictionary<PropertyLocation, List<PrimitiveProperty?>> retval)
+        {
+            var storage = storagePath.Last();
+            AbstractPrimitiveTypesProperties props = storage.Name switch
+            {
+                string x when x.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX) || x.StartsWith(RECIPIENT_STORAGE_NAME_PREFIX) => GetPrimitiveTypesProperties<AttachmentProperties>(storage),
+                "__substg1.0_3701000D" => GetPrimitiveTypesProperties<EmbeddedMessageProperties>(storage),
+                _ => GetPrimitiveTypesProperties<TopLevelProperties>(storage),
+            };
+
+            foreach (var dupl in props.GetPropertiesInstances().Where(x => x.Value.Count > 1))
+            {
+                retval[new PropertyLocation(storagePath, dupl.Key)] = dupl.Value!;
+            }
+
+            var sprops = new HashSet<MsgPropertyIds>();
+
+            storage.VisitEntries(x =>
+            {
+                if (x is CFStorage st)
+                {
+                    var newStoragePath = new List<CFStorage>(storagePath)
+                    {
+                        st
+                    };
+                    ScanDuplicatePropertiesInternal(newStoragePath, retval);
+                }
+                else if (x is CFStream stream && stream.Name.StartsWith("__substg1.0_"))
+                {
+                    var (propertyId, _) = GetPropertyIdTypeFromStreamName(stream.Name);
+                    if (!sprops.Add(propertyId))
+                    {
+                        if (!retval.ContainsKey(new PropertyLocation(storagePath, propertyId)))
+                        {
+                            retval[new PropertyLocation(storagePath, propertyId)] = new List<PrimitiveProperty?>();
+                        }
+
+                        retval[new PropertyLocation(storagePath, propertyId)].Add(null);
+                    }
+                }
+            }, false);
+        } 
     }
 
     public class RawPropertyContent

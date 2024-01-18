@@ -8,6 +8,8 @@ using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;
 using System.Text.Json;
 using MIPConsoleTools.CDF;
+using OpenMcdf;
+using LLoydsMonitorFolderForDecrypt.MSGFileUtils;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureLogging(logging => {
@@ -49,7 +51,7 @@ switch (config["action"])
     case "decrypt":
         input = config["input"]!;
         output = config["output"]!;
-        
+
         if (input.EndsWith(".eml", StringComparison.InvariantCultureIgnoreCase))
         {
             var eml = MsgReader.Mime.Message.Load(new FileInfo(input));
@@ -59,7 +61,7 @@ switch (config["action"])
                 log.LogWarning("Input file {input} is not an encrypted message!!", input);
                 Environment.Exit(1);
             }
-            
+
             using (var wrappedMsgFs = File.Create(wrappedMsg))
             {
                 MSGUtils.EmplaceAttachmentInMsgFile(config["msgTemplate"]!, eml.Attachments[0].Body, wrappedMsgFs);
@@ -139,7 +141,7 @@ switch (config["action"])
 
     case "delabel":
         result = await mip.RemoveLabelAsync(
-            config["input"]!, config["output"]!, 
+            config["input"]!, config["output"]!,
             config.GetValue("MIP:Justification", "Label removed programmatically")!);
 
         if (!result)
@@ -158,7 +160,7 @@ switch (config["action"])
         else
         {
             await mip.SetLabelAsync(
-                   config["input"]!, config["output"]!, 
+                   config["input"]!, config["output"]!,
                    lbl, config["MIP:Justification"]!);
         }
         break;
@@ -199,6 +201,17 @@ switch (config["action"])
         Console.WriteLine($"LabelName       : {cdfInfo.LabelName}");
         Console.WriteLine($"LabelDescription: {cdfInfo.LabelDescription}");
         break;
-}
 
+    case "findpropduplicates":
+        using (var fs = File.Open(config["input"]!, FileMode.Open, FileAccess.Read))
+        {
+            using var cf = new CompoundFile(fs, CFSUpdateMode.ReadOnly, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
+            var dupl = cf.RootStorage.ScanDuplicateProperties();
+            foreach (var item in dupl)
+            {
+                Console.WriteLine($"- {string.Join('/', item.Key.Storages.Select(x => x.Name))}.0x{(ushort)item.Key.PropId:X4} => {string.Join(", ", item.Value.Where(y => y != null).Select(y => y.Index.ToString("X4")))}");
+            }
+        }
+        break;
+}
 log.LogInformation("END");
