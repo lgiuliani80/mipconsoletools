@@ -10,6 +10,7 @@ using System.Text.Json;
 using MIPConsoleTools.CDF;
 using OpenMcdf;
 using LLoydsMonitorFolderForDecrypt.MSGFileUtils;
+using static LLoydsMonitorFolderForDecrypt.MSGFileUtils.MsgFileUtils;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureLogging(logging => {
@@ -213,5 +214,18 @@ switch (config["action"])
             }
         }
         break;
+
+    case "fixpropduplicates":
+        using (var fs = File.Open(config["input"]!, FileMode.Open, FileAccess.ReadWrite))
+        {
+            using var cf = new CompoundFile(fs, CFSUpdateMode.Update, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
+            var dupl = cf.RootStorage.ScanDuplicateProperties(cleanMethod: AbstractPrimitiveTypesProperties.CleanMethod.TakeLast);
+
+            Console.WriteLine($"Found {dupl.Count} duplicate properties");
+
+            cf.Commit();
+        }
+        break;
+
 }
 log.LogInformation("END");

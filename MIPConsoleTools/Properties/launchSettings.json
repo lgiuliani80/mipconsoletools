@@ -2,7 +2,7 @@
   "profiles": {
     "MIPConsoleTools": {
       "commandName": "Project",
-      "commandLineArgs": "--environment=Development-LLoyds-1 --action=findpropduplicates --input=\"C:\\Temp\\LLoyds\\IN2\\T_OME_17 C EE email with L email with mix OLD non-msg attachments (3 layer).msg\" --output=\"C:\\Temp\\LLoyds\\IN1\\Luca 26-10.dec2.zip\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=true"
+      "commandLineArgs": "--environment=Development-LLoyds-1 --action=fixpropduplicates --input=\"C:\\Temp\\LLoyds\\IN2\\A2.msg\" --output=\"C:\\Temp\\LLoyds\\IN1\\Luca 26-10.dec2.zip\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=true"
     }
   }
 }

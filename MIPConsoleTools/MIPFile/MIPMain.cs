@@ -540,6 +540,8 @@ namespace MIPConsoleTools
                     }
                 }
 
+                cf.RootStorage.ScanDuplicateProperties(cleanMethod: AbstractPrimitiveTypesProperties.CleanMethod.TakeLast);
+
                 cf.Commit();
             }
 

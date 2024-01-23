@@ -260,6 +260,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
             public enum CleanMethod
             {
+                NoClean,
                 TakeFirst,
                 TakeLast,
             }
@@ -287,6 +288,11 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 Dictionary<MsgPropertyIds, List<PrimitiveProperty>> propMap = GetPropertiesInstances();
                 bool changed = false;
 
+                if (cleanMethod == CleanMethod.NoClean)
+                    return changed;
+
+                SortedSet<PrimitiveProperty> propertiesToRemove = new (new PrimitivePropertyDescIndexComparer());
+
                 foreach (var dupl in propMap.Values.Where(x => x.Count > 1))
                 {
                     var toKeep = cleanMethod switch
@@ -296,22 +302,32 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                         _ => throw new NotImplementedException(),
                     };
 
-                    dupl.Reverse(); // Removal must take place starting from the hightest index,
-                                    // to keep the indexes of the remaining properties unchanged
-
                     foreach (var p in dupl)
                     {
                         if (p != toKeep)
                         {
                             logger?.LogWarning("Removing duplicate property: {prop}", p);
-                            p.Remove();
+                            propertiesToRemove.Add(p);
                             changed = true;
                         }
                     }
                     logger?.LogWarning("Removed {nremoved} duplicates of property: {prop}", dupl.Count - 1, toKeep);
                 }
 
+                foreach (var p in propertiesToRemove)
+                {
+                    p.Remove();
+                }
+
                 return changed;
+            }
+        }
+
+        internal class PrimitivePropertyDescIndexComparer : IComparer<PrimitiveProperty>
+        {
+            public int Compare(PrimitiveProperty? x, PrimitiveProperty? y)
+            {
+                return (y?.Index - x?.Index) ?? -1;
             }
         }
 
@@ -520,14 +536,14 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
         public record PropertyLocation(List<CFStorage> Storages, MsgPropertyIds PropId);
 
-        public static Dictionary<PropertyLocation, List<PrimitiveProperty?>> ScanDuplicateProperties(this CFStorage cfStorage)
+        public static Dictionary<PropertyLocation, List<PrimitiveProperty?>> ScanDuplicateProperties(this CFStorage cfStorage, AbstractPrimitiveTypesProperties.CleanMethod cleanMethod = AbstractPrimitiveTypesProperties.CleanMethod.NoClean)
         {
             var retval = new Dictionary<PropertyLocation, List<PrimitiveProperty?>>();
-            ScanDuplicatePropertiesInternal(new List<CFStorage> { cfStorage }, retval);
+            ScanDuplicatePropertiesInternal(new List<CFStorage> { cfStorage }, retval, cleanMethod);
             return retval;
         }
 
-        private static void ScanDuplicatePropertiesInternal(List<CFStorage> storagePath, Dictionary<PropertyLocation, List<PrimitiveProperty?>> retval)
+        private static void ScanDuplicatePropertiesInternal(List<CFStorage> storagePath, Dictionary<PropertyLocation, List<PrimitiveProperty?>> retval, AbstractPrimitiveTypesProperties.CleanMethod cleanMethod)
         {
             var storage = storagePath.Last();
             AbstractPrimitiveTypesProperties props = storage.Name switch
@@ -542,6 +558,14 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 retval[new PropertyLocation(storagePath, dupl.Key)] = dupl.Value!;
             }
 
+            if (cleanMethod != AbstractPrimitiveTypesProperties.CleanMethod.NoClean)
+            {
+                if (props.CleanDuplicates(cleanMethod))
+                {
+                    storage.SetPrimitiveTypesProperties(props);
+                }
+            }
+
             var sprops = new HashSet<MsgPropertyIds>();
 
             storage.VisitEntries(x =>
@@ -552,7 +576,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                     {
                         st
                     };
-                    ScanDuplicatePropertiesInternal(newStoragePath, retval);
+                    ScanDuplicatePropertiesInternal(newStoragePath, retval, cleanMethod);
                 }
                 else if (x is CFStream stream && stream.Name.StartsWith("__substg1.0_"))
                 {
