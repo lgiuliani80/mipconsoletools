@@ -2,7 +2,6 @@
 using OpenMcdf;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -193,7 +192,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
 
             public void Remove()
             {
-                PropertiesContainer.PropertiesStream = PropertiesContainer.PropertiesStream.Take(Index).Concat(PropertiesContainer.PropertiesStream.Skip(Index + 16)).ToArray();
+                PropertiesContainer.PropertiesToRemove.Add(this);
             }
 
             public override string ToString()
@@ -206,6 +205,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
         {
             public byte[] PropertiesStream { get; internal set; }
             public int Offset { get; init; }
+            internal SortedSet<PrimitiveProperty> PropertiesToRemove { get; init; } = new SortedSet<PrimitiveProperty>(new PrimitivePropertyDescIndexComparer());
 
             public AbstractPrimitiveTypesProperties(byte[] bytes, int offset)
             {
@@ -291,8 +291,6 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 if (cleanMethod == CleanMethod.NoClean)
                     return changed;
 
-                SortedSet<PrimitiveProperty> propertiesToRemove = new (new PrimitivePropertyDescIndexComparer());
-
                 foreach (var dupl in propMap.Values.Where(x => x.Count > 1))
                 {
                     var toKeep = cleanMethod switch
@@ -307,19 +305,27 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                         if (p != toKeep)
                         {
                             logger?.LogWarning("Removing duplicate property: {prop}", p);
-                            propertiesToRemove.Add(p);
+                            p.Remove();
                             changed = true;
                         }
                     }
                     logger?.LogWarning("Removed {nremoved} duplicates of property: {prop}", dupl.Count - 1, toKeep);
                 }
 
-                foreach (var p in propertiesToRemove)
-                {
-                    p.Remove();
-                }
-
                 return changed;
+            }
+
+            internal void RemovePendingProperties(CFStorage? containingStream)
+            {
+                foreach (var p in PropertiesToRemove)
+                {
+                    PropertiesStream = PropertiesStream.Take(p.Index).Concat(PropertiesStream.Skip(p.Index + 16)).ToArray();
+
+                    if (containingStream?.TryGetStream(GetStreamNameFromPropertyIdType(p.PropertyId, p.PropertyType), out CFStream cf) ?? false)
+                    {
+                        containingStream.Delete(cf.Name);
+                    }
+                }
             }
         }
 
@@ -416,6 +422,7 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
             {
                 propDataStream = cfstorage.AddStream("__properties_version1.0");
             }
+            properties.RemovePendingProperties(cfstorage);
             propDataStream.SetData(properties.PropertiesStream);
         }
 

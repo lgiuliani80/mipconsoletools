@@ -210,7 +210,7 @@ switch (config["action"])
             var dupl = cf.RootStorage.ScanDuplicateProperties();
             foreach (var item in dupl)
             {
-                Console.WriteLine($"- {string.Join('/', item.Key.Storages.Select(x => x.Name))}.0x{(ushort)item.Key.PropId:X4} => {string.Join(", ", item.Value.Where(y => y != null).Select(y => y.Index.ToString("X4")))}");
+                Console.WriteLine($"- {string.Join('/', item.Key.Storages.Select(x => x.Name))}.0x{(ushort)item.Key.PropId:X4} => {string.Join(", ", item.Value.Where(y => y != null).Select(y => y!.Index.ToString("X4")))}");
             }
         }
         break;
@@ -219,11 +219,14 @@ switch (config["action"])
         using (var fs = File.Open(config["input"]!, FileMode.Open, FileAccess.ReadWrite))
         {
             using var cf = new CompoundFile(fs, CFSUpdateMode.Update, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
-            var dupl = cf.RootStorage.ScanDuplicateProperties(cleanMethod: AbstractPrimitiveTypesProperties.CleanMethod.TakeLast);
 
-            Console.WriteLine($"Found {dupl.Count} duplicate properties");
+            if (cf.RootStorage != null)
+            {
+                var dupl = cf.RootStorage.ScanDuplicateProperties(cleanMethod: AbstractPrimitiveTypesProperties.CleanMethod.TakeLast);
+                Console.WriteLine($"Found {dupl.Count} duplicate properties");
 
-            cf.Commit();
+                cf.Commit();
+            }
         }
         break;
 
