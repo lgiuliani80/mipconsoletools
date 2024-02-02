@@ -230,5 +230,29 @@ switch (config["action"])
         }
         break;
 
+    case "findwrongprop":
+        using (var fs = File.Open(config["input"]!, FileMode.Open, FileAccess.Read))
+        {
+            using var cf = new CompoundFile(fs, CFSUpdateMode.ReadOnly, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
+            var wrong = cf.RootStorage.FixPropertySizes(simulateOnly: true);
+            foreach (var item in wrong)
+            {
+                Console.WriteLine($"- {string.Join('/', item.Location.Storages.Select(x => x.Name))}.0x{(ushort)item.Location.PropId:X4} = {item.OldSize} != {item.NewSize}");
+            }
+        }
+        break;
+
+    case "fixwrongprop":
+        using (var fs = File.Open(config["input"]!, FileMode.Open, FileAccess.ReadWrite))
+        {
+            using var cf = new CompoundFile(fs, CFSUpdateMode.Update, CFSConfiguration.SectorRecycle | CFSConfiguration.NoValidationException | CFSConfiguration.EraseFreeSectors);
+            var wrong = cf.RootStorage.FixPropertySizes(simulateOnly: false);
+            foreach (var item in wrong)
+            {
+                Console.WriteLine($"- {string.Join('/', item.Location.Storages.Select(x => x.Name))}.0x{(ushort)item.Location.PropId:X4} = {item.OldSize} != {item.NewSize}");
+            }
+            cf.Commit();
+        }
+        break;
 }
 log.LogInformation("END");

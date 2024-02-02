@@ -265,6 +265,28 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 TakeLast,
             }
 
+            public Dictionary<MsgPropertyIds, (int oldSize, int newSize)> FixExternalPropertyAttributes(CFStorage container, bool simulateOnly = false)
+            {
+                var retVal = new Dictionary<MsgPropertyIds, (int oldSize, int newSize)>();
+
+                foreach (var p in ReadProperties().Where(x => x.PropertyType == MsgPropertyTypes.PtypString))
+                {
+                    var (recordedSize, _) = p.GetValue<(int, int)>();
+                    var streamName = GetStreamNameFromPropertyIdType(p.PropertyId, p.PropertyType);
+                    
+                    if (container.TryGetStream(streamName, out CFStream cf) && recordedSize != (cf.Size + 2) && recordedSize != cf.Size)
+                    {
+                        if (!simulateOnly)
+                        {
+                            p.SetValue(((int)cf.Size + 2, 0));
+                        }
+                        retVal.Add(p.PropertyId, (recordedSize, (int)cf.Size + 2));
+                    }
+                }
+
+                return retVal;
+            }
+
             public Dictionary<MsgPropertyIds, List<PrimitiveProperty>> GetPropertiesInstances()
             {
                 Dictionary<MsgPropertyIds, List<PrimitiveProperty>> propMap = new();
@@ -315,15 +337,15 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
                 return changed;
             }
 
-            internal void RemovePendingProperties(CFStorage? containingStream)
+            internal void RemovePendingProperties(CFStorage? container)
             {
                 foreach (var p in PropertiesToRemove)
                 {
                     PropertiesStream = PropertiesStream.Take(p.Index).Concat(PropertiesStream.Skip(p.Index + 16)).ToArray();
 
-                    if (containingStream?.TryGetStream(GetStreamNameFromPropertyIdType(p.PropertyId, p.PropertyType), out CFStream cf) ?? false)
+                    if (container?.TryGetStream(GetStreamNameFromPropertyIdType(p.PropertyId, p.PropertyType), out CFStream cf) ?? false)
                     {
-                        containingStream.Delete(cf.Name);
+                        container.Delete(cf.Name);
                     }
                 }
             }
@@ -542,6 +564,46 @@ namespace LLoydsMonitorFolderForDecrypt.MSGFileUtils
         }
 
         public record PropertyLocation(List<CFStorage> Storages, MsgPropertyIds PropId);
+        public record FixedProperty(PropertyLocation Location, MsgPropertyTypes Type, int OldSize, int NewSize);
+
+        public static List<FixedProperty> FixPropertySizes(this CFStorage cfStorage, bool simulateOnly = false)
+        {
+            var retval = new List<FixedProperty>();
+            FixPropertySizesInternal(new List<CFStorage> { cfStorage }, retval, simulateOnly);
+            return retval;
+        }
+
+        private static void FixPropertySizesInternal(List<CFStorage> storagePath, List<FixedProperty> retval, bool simulateOnly)
+        {
+            var storage = storagePath.Last();
+            AbstractPrimitiveTypesProperties props = storage.Name switch
+            {
+                string x when x.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX) || x.StartsWith(RECIPIENT_STORAGE_NAME_PREFIX) => GetPrimitiveTypesProperties<AttachmentProperties>(storage),
+                "__substg1.0_3701000D" => GetPrimitiveTypesProperties<EmbeddedMessageProperties>(storage),
+                _ => GetPrimitiveTypesProperties<TopLevelProperties>(storage),
+            };
+
+            var fixedProps = props.FixExternalPropertyAttributes(storage, simulateOnly);
+            foreach (var (propId, (oldSize, newSize)) in fixedProps)
+            {
+                retval.Add(new FixedProperty(new PropertyLocation(storagePath, propId), MsgPropertyTypes.PtypString, oldSize, newSize));
+            }
+
+            if (fixedProps.Count > 0 && !simulateOnly)
+                SetPrimitiveTypesProperties(storage, props);
+
+            storage.VisitEntries(x =>
+            {
+                if (x is CFStorage st)
+                {
+                    var newStoragePath = new List<CFStorage>(storagePath)
+                    {
+                        st
+                    };
+                    FixPropertySizesInternal(newStoragePath, retval, simulateOnly);
+                }
+            }, false);
+        }
 
         public static Dictionary<PropertyLocation, List<PrimitiveProperty?>> ScanDuplicateProperties(this CFStorage cfStorage, AbstractPrimitiveTypesProperties.CleanMethod cleanMethod = AbstractPrimitiveTypesProperties.CleanMethod.NoClean)
         {
