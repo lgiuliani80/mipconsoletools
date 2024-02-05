@@ -25,6 +25,7 @@ using static LLoydsMonitorFolderForDecrypt.MSGFileUtils.MsgFileUtils;
 using MEL = Microsoft.Extensions.Logging;
 using MIPL = Microsoft.InformationProtection;
 using MIPConsoleTools.Utils;
+using System.IO.Packaging;
 
 namespace MIPConsoleTools
 {
@@ -537,6 +538,7 @@ namespace MIPConsoleTools
                 }
 
                 cf.RootStorage.ScanDuplicateProperties(cleanMethod: AbstractPrimitiveTypesProperties.CleanMethod.TakeLast);
+                cf.RootStorage.FixPropertySizes();
 
                 cf.Commit();
             }
@@ -602,7 +604,59 @@ namespace MIPConsoleTools
             try
             {
                 if (fileHandler.Label == null)
+                {
+                    var ext = Path.GetExtension(msgFileInput).ToLower();
+
+                    switch (ext)
+                    {
+                        case ".docx":
+                        case ".pptx":
+                            {
+                                using var pkg = Package.Open(msgFileInput, FileMode.Open, FileAccess.Read);
+                                var custProps = pkg.GetPart(new Uri("/docProps/custom.xml", UriKind.Relative));
+                                if (custProps != null)
+                                {
+                                    var xmldoc = new System.Xml.XmlDocument();
+                                    var xmlnsmgr = new System.Xml.XmlNamespaceManager(xmldoc.NameTable);
+                                    xmlnsmgr.AddNamespace("vt", "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes");
+                                    xmlnsmgr.AddNamespace("p", "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties");
+                                    xmldoc.Load(custProps.GetStream());
+                                    var node = xmldoc.SelectSingleNode("//p:property/vt:lpwstr[starts-with(., 'Classification: ')]", xmlnsmgr);
+                                    if (node != null)
+                                    {
+                                        return node.InnerText["Classification: ".Length..] + "_D";
+                                    }
+                                }
+                            }
+                            break;
+
+                        case ".xlsx":
+                        case ".xlsm":
+                            {
+                                using var pkg = Package.Open(msgFileInput, FileMode.Open, FileAccess.Read);
+                                var sheet1 = pkg.GetPart(new Uri("/xl/worksheets/sheet1.xml", UriKind.Relative));
+                                if (sheet1 != null)
+                                {
+                                    var xmldoc = new System.Xml.XmlDocument();
+                                    var xmlnsmgr = new System.Xml.XmlNamespaceManager(xmldoc.NameTable);
+                                    xmlnsmgr.AddNamespace("o", "http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+                                    xmldoc.Load(sheet1.GetStream());
+                                    var node = xmldoc.SelectSingleNode("//o:oddHeader[contains(., 'Classification: ')]", xmlnsmgr);
+                                    if (node != null)
+                                    {
+                                        var match = Regex.Match(node.InnerText, @"Classification: ([^&\r\n]+)");
+                                        if (match.Success)
+                                        {
+                                            return match.Groups[1].Value + "_D";
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                    }
+
                     return null;
+                }
 
                 return string.Join(" - ", new string?[] { 
                     fileHandler.Label?.Label?.Parent?.Name, 
