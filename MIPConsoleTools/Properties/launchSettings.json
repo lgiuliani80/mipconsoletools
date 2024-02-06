@@ -2,7 +2,7 @@
   "profiles": {
     "MIPConsoleTools": {
       "commandName": "Project",
-      "commandLineArgs": "--environment=Development-LLoyds-2 --action=getlabel --input=\"C:\\Sviluppo\\_Clienti\\LLoyds\\Issues\\Issue2-null_IOlabels\\Issue2-null IOlabels\\testfile\\sourcefile\\PPT new HC IO.pptx\" --output=\"C:\\Sviluppo\\_Clienti\\LLoyds\\Issues\\Issue2-null_IOlabels\\Issue2-null IOlabels\\testfile\\sourcefile\\T_OME_15 C EE email with new mix label non-msg attachments.dec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=false --appendSensitivityLabelToNames=false"
+      "commandLineArgs": "--environment=Development-LLoyds-2 --action=decrypt --input=\"C:\\Sviluppo\\_Clienti\\LLoyds\\Issues\\Issue2-null_IOlabels\\Issue2-null IOlabels\\testfile\\sourcefile\\T_OME_15 C EE email with new mix label non-msg attachments - Copia.msg\" --output=\"C:\\Sviluppo\\_Clienti\\LLoyds\\Issues\\Issue2-null_IOlabels\\Issue2-null IOlabels\\testfile\\sourcefile\\T_OME_15 C EE email with new mix label non-msg attachments - Copia.dec-nonrec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=false --appendSensitivityLabelToNames=false"
     }
   }
 }

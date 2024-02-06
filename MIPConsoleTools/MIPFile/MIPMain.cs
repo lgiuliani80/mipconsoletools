@@ -94,7 +94,8 @@ namespace MIPConsoleTools
                 if (!string.IsNullOrWhiteSpace(delegatedUser))
                     _engineSettings.DelegatedUserEmail = delegatedUser;  // NOT REQUIRED IN CASE OF Content.SuperUser APPLICATION PERMISSION
                 _engineSettings.CustomSettings = new List<KeyValuePair<string, string>> {
-                    KeyValuePair.Create("enable_msg_file_type", "true")
+                    KeyValuePair.Create("enable_msg_file_type", "true"),
+                    KeyValuePair.Create("container_decryption_option", "top")
                 };
 
                 _fileEngine = Task.Run(async () => await _fileProfile.AddEngineAsync(_engineSettings)).Result;
@@ -605,6 +606,7 @@ namespace MIPConsoleTools
             {
                 if (fileHandler.Label == null)
                 {
+#if TRY_EXTRACT_LABEL_FROM_CONTENT_MARKER
                     var ext = Path.GetExtension(msgFileInput).ToLower();
 
                     switch (ext)
@@ -654,7 +656,7 @@ namespace MIPConsoleTools
                             }
                             break;
                     }
-
+#endif
                     return null;
                 }
 
