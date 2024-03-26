@@ -76,13 +76,15 @@ namespace MIPConsoleTools
 
                 if (_clientSecretOrCertificate.StartsWith(CERTIFICATE_PREFIX))
                 {
-                    var st = new X509Store(StoreName.My);
-                    var cert = st.Certificates.Find(X509FindType.FindByThumbprint, _clientSecretOrCertificate[CERTIFICATE_PREFIX.Length..], false).FirstOrDefault();
-
+                    using var mycu = new X509Store(StoreName.My);
+                    mycu.Open(OpenFlags.ReadOnly);
+                    var cert = mycu.Certificates.Find(X509FindType.FindByThumbprint, _clientSecretOrCertificate[CERTIFICATE_PREFIX.Length..], false).FirstOrDefault();
+                    
                     if (cert == null)
                     {
-                        st = new X509Store(StoreName.My, StoreLocation.LocalMachine);
-                        cert = st.Certificates.Find(X509FindType.FindByThumbprint, _clientSecretOrCertificate[CERTIFICATE_PREFIX.Length..], false).First();
+                        using var mylm = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+                        mylm.Open(OpenFlags.ReadOnly);
+                        cert = mylm.Certificates.Find(X509FindType.FindByThumbprint, _clientSecretOrCertificate[CERTIFICATE_PREFIX.Length..], false).First();
                     }
 
                     cclientBuilder = cclientBuilder.WithCertificate(cert);

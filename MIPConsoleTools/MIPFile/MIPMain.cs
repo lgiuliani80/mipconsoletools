@@ -336,7 +336,7 @@ namespace MIPConsoleTools
                                         
                                         if (inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE))
                                         {
-                                            var htmlCode = inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2];
+                                            var htmlCode = inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2].Replace(@"\par", "").Replace(@"\{", "{").Replace(@"\}", "}");
                                             var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
 
                                             cids = Regex.Matches(inspectResult.Body, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
