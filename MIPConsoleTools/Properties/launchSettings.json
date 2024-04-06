@@ -2,7 +2,7 @@
   "profiles": {
     "MIPConsoleTools": {
       "commandName": "Project",
-      "commandLineArgs": "--environment=Development-LLoyds-2 --action=decrypt --input=\"C:\\Sviluppo\\_Clienti\\LLoyds\\Issues\\Issue2-null_IOlabels\\Issue2-null IOlabels\\testfile\\sourcefile\\T_OME_15 C EE email with new mix label non-msg attachments - Copia.msg\" --output=\"C:\\Sviluppo\\_Clienti\\LLoyds\\Issues\\Issue2-null_IOlabels\\Issue2-null IOlabels\\testfile\\sourcefile\\T_OME_15 C EE email with new mix label non-msg attachments - Copia.dec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=false"
+      "commandLineArgs": "--environment=Development-LLoyds-1 --action=decrypt --input=\"C:\\Temp\\LLoyds\\IN4\\UnableToDecrypt4.msg\" --output=\"C:\\Temp\\LLoyds\\IN4\\UnableToDecrypt4-dec.msg\" --msgTemplate=\"C:\\Temp\\LLoyds\\IN0\\T0\\OME - HC.msg\" --recursive=true --appendSensitivityLabelToNames=false"
     }
   }
 }

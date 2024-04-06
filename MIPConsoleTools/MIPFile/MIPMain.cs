@@ -26,6 +26,7 @@ using MEL = Microsoft.Extensions.Logging;
 using MIPL = Microsoft.InformationProtection;
 using MIPConsoleTools.Utils;
 using System.IO.Packaging;
+using System.Globalization;
 
 namespace MIPConsoleTools
 {
@@ -44,6 +45,7 @@ namespace MIPConsoleTools
 
         public bool AppendSensitivityLabelToNames { get; set; }
         public string? MSGTemplateFile { get; set; }
+        public bool UseGetLabelById { get; set; } = true;
 
         public MIPMain(ILogger logger, MIPL.LogLevel logLevel, string tenantId, string clientId, string appName, string appVersion, string username, string clientSecretOrCertificate, string locale = "en-US", string mipDataDir = "mip_data", string? delegatedUser = null, bool isInteractive = false)
         {
@@ -256,6 +258,41 @@ namespace MIPConsoleTools
             return $"{bn}.{ext}";
         }
 
+        private static string HtmlFromRtf(string rtfHtml)
+        {
+            if (rtfHtml.StartsWith(HTML_RFT_PREAMBLE))
+            {
+                rtfHtml = Regex.Replace(rtfHtml[HTML_RFT_PREAMBLE.Length..], "}}\\s*$", "");
+            }
+            rtfHtml = rtfHtml.Replace("\\par", "\n");
+            rtfHtml = rtfHtml.Replace("\\{", "{").Replace("\\}", "}");
+            rtfHtml = rtfHtml.Replace("\\\\", "\\");
+
+            var matches = Regex.Matches(rtfHtml, @"\\u[0-9a-fA-F]{4}");
+
+            foreach (var m in matches.Cast<Match>())
+            {
+                var hex = m.Value[2..];
+                if (int.TryParse(hex,  NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code))
+                {
+                    rtfHtml = rtfHtml.Replace(m.Value, new string((char)code, 1));
+                }
+            }
+
+            matches = Regex.Matches(rtfHtml, "\\\\'[0-9a-fA-F]{2}");
+
+            foreach (var m in matches.Cast<Match>())
+            {
+                var hex = m.Value[2..];
+                if (int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code))
+                {
+                    rtfHtml = rtfHtml.Replace(m.Value, new string((char)code, 1));
+                }
+            }
+
+            return rtfHtml;
+        }
+
         private async Task<FileNameWrapper> RecursiveDecryptMSGAsync(string msgFileInput, ItemMetadata meta)
         {
             void VisitEntries(CFStorage st, CFStorage? parent, ItemMetadata md)
@@ -279,7 +316,8 @@ namespace MIPConsoleTools
                 {
                     md.Label = m.Groups[1].Value;
 
-                    var lbl = GetAllLabels().FirstOrDefault(x => x.Id.ToLower() == md.Label.ToLower());
+                    var lbl = UseGetLabelById ? _fileEngine.GetLabelById(md.Label) : GetAllLabels().FirstOrDefault(x => x.Id.ToLower() == md.Label.ToLower());
+                    
                     if (lbl != null)
                     {
                         md.Label = string.Join(" - ", new string?[] {
@@ -336,7 +374,7 @@ namespace MIPConsoleTools
                                         
                                         if (inspectResult.Body.StartsWith(HTML_RFT_PREAMBLE))
                                         {
-                                            var htmlCode = inspectResult.Body[HTML_RFT_PREAMBLE.Length..^2].Replace(@"\par", "").Replace(@"\{", "{").Replace(@"\}", "}");
+                                            var htmlCode = HtmlFromRtf(inspectResult.Body);
                                             var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
 
                                             cids = Regex.Matches(inspectResult.Body, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
