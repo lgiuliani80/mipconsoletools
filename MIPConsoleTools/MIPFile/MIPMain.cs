@@ -268,7 +268,7 @@ namespace MIPConsoleTools
             rtfHtml = rtfHtml.Replace("\\{", "{").Replace("\\}", "}");
             rtfHtml = rtfHtml.Replace("\\\\", "\\");
 
-            var matches = Regex.Matches(rtfHtml, @"\\u[0-9]+\\?");
+            var matches = Regex.Matches(rtfHtml, @"\\u[0-9]+\?");
 
             foreach (var m in matches.Cast<Match>())
             {
@@ -279,7 +279,7 @@ namespace MIPConsoleTools
                 }
             }
 
-            matches = Regex.Matches(rtfHtml, "\\\\'[0-9a-fA-F]{2}");
+            matches = Regex.Matches(rtfHtml, @"\\'[0-9a-fA-F]{2}");
 
             foreach (var m in matches.Cast<Match>())
             {
