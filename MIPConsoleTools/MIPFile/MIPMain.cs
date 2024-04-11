@@ -268,12 +268,12 @@ namespace MIPConsoleTools
             rtfHtml = rtfHtml.Replace("\\{", "{").Replace("\\}", "}");
             rtfHtml = rtfHtml.Replace("\\\\", "\\");
 
-            var matches = Regex.Matches(rtfHtml, @"\\u[0-9a-fA-F]{4}");
+            var matches = Regex.Matches(rtfHtml, @"\\u[0-9]+\\?");
 
             foreach (var m in matches.Cast<Match>())
             {
-                var hex = m.Value[2..];
-                if (int.TryParse(hex,  NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code))
+                var hex = m.Value[2..^1];
+                if (int.TryParse(hex, out var code))
                 {
                     rtfHtml = rtfHtml.Replace(m.Value, new string((char)code, 1));
                 }
@@ -342,16 +342,18 @@ namespace MIPConsoleTools
                                 if (MSGTemplateFile == null)
                                     throw new ArgumentException($"{nameof(MSGTemplateFile)} cannot be null if using recursive decryption on MSG files with attachments");
 
-                                var cids = new List<string>();
+                                var cidsMap = new Dictionary<string, string>();
+                                var inspectAttachmentsForCids = false;
 
                                 var rpmsgBytes = storage.GetRawProperty(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary)!;
                                 using var tmpMsgFile = new TempFileWrapper(".msg");
+                                using var tmpMsgFileOut = new TempFileWrapper(".msg");
                                 using (var fs = File.Create(tmpMsgFile))
                                 {
                                     MSGUtils.EmplaceAttachmentInMsgFile(MSGTemplateFile, rpmsgBytes, fs);
                                 }
 
-                                var inspectResult = InspectMSGAsync(tmpMsgFile).Result;
+                                var inspectResult = InspectMSGAsync(tmpMsgFile, tmpMsgFileOut).Result;
 
                                 if (inspectResult != null)
                                 {
@@ -377,7 +379,11 @@ namespace MIPConsoleTools
                                             var htmlCode = HtmlFromRtf(inspectResult.Body);
                                             var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
 
-                                            cids = Regex.Matches(inspectResult.Body, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
+                                            if (Regex.IsMatch(inspectResult.Body, "\"cid:([^\"]+)\""))
+                                            {
+                                                inspectAttachmentsForCids = true;
+                                            }
+
                                             st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
                                         }
                                     }
@@ -387,7 +393,12 @@ namespace MIPConsoleTools
                                         var htmlCodeBytes = Encoding.ASCII.GetBytes(htmlCode);
 
                                         nativeBody = 3; // HTML
-                                        cids = Regex.Matches(inspectResult.Body, "\"cid:([^\"]+)\"").Where(x => x.Success).Select(x => x.Groups[1].Value).ToList();
+
+                                        if (Regex.IsMatch(inspectResult.Body, "\"cid:([^\"]+)\""))
+                                        {
+                                            inspectAttachmentsForCids = true;
+                                        }
+
                                         st.RemoveProperty(isEmbedded, MsgPropertyIds.PidTagRtfCompressed, MsgPropertyTypes.PtypBinary);
                                         st.SetRawProperty(isEmbedded, MsgPropertyIds.PidTagBodyHtml, MsgPropertyTypes.PtypBinary, htmlCodeBytes, (uint)htmlCodeBytes.Length);
                                     }
@@ -410,7 +421,26 @@ namespace MIPConsoleTools
                                         }
                                     }
 
-                                    AttachmentProperties ap = storage.GetPrimitiveTypesProperties<AttachmentProperties>();
+                                    if (inspectAttachmentsForCids)
+                                    {
+                                        using var fs = File.Open(tmpMsgFileOut, FileMode.Open);
+                                        using var cf = new CompoundFile(fs, CFSUpdateMode.ReadOnly, CFSConfiguration.Default);
+
+                                        cf.RootStorage.VisitEntries(item =>
+                                        {
+                                            if (item is CFStorage storage && storage.Name.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX))
+                                            {
+                                                var attachmentName = storage.GetStringProperty(MsgPropertyIds.PidTagAttachLongFilename);
+                                                var cid = storage.GetStringProperty(MsgPropertyIds.PidTagAttachContentId);
+                                                if (cid != null && attachmentName != null)
+                                                {
+                                                    cidsMap[attachmentName] = cid;
+                                                }
+                                            }
+                                        }, recursive: false);
+                                    }
+
+                                        AttachmentProperties ap = storage.GetPrimitiveTypesProperties<AttachmentProperties>();
                                     var rpmsgCreationTime = ap.GetProperty(MsgPropertyIds.PidTagCreationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
                                     var rpmsgLastModificationTime = ap.GetProperty(MsgPropertyIds.PidTagLastModificationTime, MsgPropertyTypes.PtypTime).GetValue<DateTime>();
 
@@ -434,8 +464,6 @@ namespace MIPConsoleTools
                                     });
 
                                     int attachmentIndex = 0;
-                                    int initialAttachmentIndex = attachmentIndex;
-                                    List<CFStorage> renderableAttachments = new();
 
                                     for (int i = 0; i < inspectResult.Attachments.Count; i++)
                                     {
@@ -461,33 +489,13 @@ namespace MIPConsoleTools
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagDisplayName, att.Name);
                                         attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagLanguage, MSG_ATTACHMENTS_LANGUAGE);
                                         
-                                        // HEURISTIC!
-                                        var cid = cids.FirstOrDefault(x => x.StartsWith(att.Name + "@", StringComparison.OrdinalIgnoreCase));
-                                        if (cid != null)
+                                        if (cidsMap.TryGetValue(att.Name, out var cid))
                                         {
                                             attst.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, cid);
-                                            cids.Remove(cid);
-                                        }
-                                        else if (ext.ToLower() == ".png" || ext.ToLower() == ".jpg" || ext.ToLower() == ".jpeg" || ext.ToLower() == ".gif")
-                                        {
-                                            renderableAttachments.Add(attst);
                                         }
 
                                         // Binary properties
                                         attst.SetRawProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachDataObject, MsgPropertyTypes.PtypBinary, att.Content, (uint)att.Content.Length);
-                                    }
-
-                                    // Try to map all remaining CIDs to image attachments
-                                    int cidIndex = 0;
-                                    foreach (var ast in renderableAttachments)
-                                    {
-                                        if (cidIndex >= cids.Count)
-                                            break;
-
-                                        var cid = cids[cidIndex];
-                                        ast.SetStringProperty<AttachmentProperties>(MsgPropertyIds.PidTagAttachContentId, cid);
-
-                                        cidIndex++;
                                     }
 
                                     TopLevelOrEmbeddedProperties p = isEmbedded ? 
@@ -585,11 +593,17 @@ namespace MIPConsoleTools
             return output;
         }
 
-        public async Task<WholeMessage?> InspectMSGAsync(string msgFileInput)
+        public async Task<WholeMessage?> InspectMSGAsync(string msgFileInput, string? msgFileOutput = null)
         {
             WholeMessage? ret = null;
             using var fileHandler = await _fileEngine.CreateFileHandlerAsync(msgFileInput, msgFileInput, true);
             using var inspector = await fileHandler.InspectAsync();
+
+            if (msgFileOutput != null)
+            {
+                using var fout = File.Create(msgFileOutput);
+                (await fileHandler.GetDecryptedTemporaryStreamAsync()).CopyTo(fout);
+            }
 
             if (inspector.Type == InspectorType.Msg && inspector is IMsgInspector msg)
             {
