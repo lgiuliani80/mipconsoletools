@@ -423,21 +423,28 @@ namespace MIPConsoleTools
 
                                     if (inspectAttachmentsForCids)
                                     {
-                                        using var fs = File.Open(tmpMsgFileOut, FileMode.Open);
-                                        using var cf = new CompoundFile(fs, CFSUpdateMode.ReadOnly, CFSConfiguration.Default);
-
-                                        cf.RootStorage.VisitEntries(item =>
+                                        try
                                         {
-                                            if (item is CFStorage storage && storage.Name.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX))
+                                            using var fs = File.Open(tmpMsgFileOut, FileMode.Open);
+                                            using var cf = new CompoundFile(fs, CFSUpdateMode.ReadOnly, CFSConfiguration.Default);
+
+                                            cf.RootStorage.VisitEntries(item =>
                                             {
-                                                var attachmentName = storage.GetStringProperty(MsgPropertyIds.PidTagAttachLongFilename);
-                                                var cid = storage.GetStringProperty(MsgPropertyIds.PidTagAttachContentId);
-                                                if (cid != null && attachmentName != null)
+                                                if (item is CFStorage storage && storage.Name.StartsWith(ATTACHMENT_STORAGE_NAME_PREFIX))
                                                 {
-                                                    cidsMap[attachmentName] = cid;
+                                                    var attachmentName = storage.GetStringProperty(MsgPropertyIds.PidTagAttachLongFilename);
+                                                    var cid = storage.GetStringProperty(MsgPropertyIds.PidTagAttachContentId);
+                                                    if (cid != null && attachmentName != null)
+                                                    {
+                                                        cidsMap[attachmentName] = cid;
+                                                    }
                                                 }
-                                            }
-                                        }, recursive: false);
+                                            }, recursive: false);
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            _logger.LogWarning(ex, "Error while inspecting attachments for CIDs in {msgFile}", tmpMsgFileOut);
+                                        }
                                     }
 
                                         AttachmentProperties ap = storage.GetPrimitiveTypesProperties<AttachmentProperties>();
