@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **Describe the bug**
-A clear and concise description of what the bug is.
+[MANDATORY] A clear and concise description of what the bug is.
 
 **To Reproduce**
 Steps to reproduce the behavior:
@@ -26,7 +26,14 @@ If applicable, add screenshots to help explain your problem.
 **Additional context**
 Add any other context about the problem here.
 
+**Code context**
+[MANDATORY] If you're not using my files "verbatim", but you copy-paste into yours please report here the source code line generating the exception, along with some context before and after. Each line must be precededed by the line number in your source code e.g.
+
+    123   var a = "hello";
+    124   var b = a + " world";
+
+
 **Tenant ID**
 <put-the-tenant-id-here>
 
-**PROVIDE THE ORIGINAL FILE AS ATTACHMENT TO THIS ISSUE**
+**MANDATORY: PROVIDE THE ORIGINAL FILE AS ATTACHMENT TO THIS ISSUE**
