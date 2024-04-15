@@ -7,26 +7,31 @@ assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**Describe the bug**  
+[MANDATORY] A clear and concise description of what the bug is.
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+**To Reproduce**  
+Sequence of steps to reproduce the behavior.
 
-**Expected behavior**
+**Expected behavior**  
 A clear and concise description of what you expected to happen.
 
-**Screenshots**
+**Screenshots**  
 If applicable, add screenshots to help explain your problem.
 
-**Additional context**
+**Additional context**  
 Add any other context about the problem here.
 
-**Tenant ID**
-<put-the-tenant-id-here>
+**Code context**  
+[MANDATORY] If you're not using my files "verbatim", but you copy-paste into yours please report here the source code line generating the exception, along with some context before and after. Each line must be precededed by the line number in your source code e.g.
 
-**PROVIDE THE ORIGINAL FILE AS ATTACHMENT TO THIS ISSUE**
+    123   var a = "hello";
+    124   var b = a + " world";
+    125
+    126   Console.WriteLine(b);
+
+
+**Tenant ID**  
+[put-the-tenant-id-here]
+  
+**MANDATORY: PROVIDE THE ORIGINAL FILE AS ATTACHMENT TO THIS ISSUE**
