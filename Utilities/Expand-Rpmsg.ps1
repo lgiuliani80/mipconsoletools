@@ -5,19 +5,19 @@ param(
 
 $rpmsg_signature = [byte[]] @( 0x76, 0xe8, 0x04, 0x60, 0xc4, 0x11, 0xe3, 0x86 )
 
-Write-Host "- Opening files ..."
+Write-Verbose "- Opening files ..."
 
 try {
 	$fin = [System.IO.File]::OpenRead($InputRpmsgFile)
 	$msout = New-Object System.IO.MemoryStream
 
-	Write-Host "- Checking signature ..."
+	Write-Verbose "- Checking signature ..."
 	$signature = New-Object byte[] 8
 	$fin.Read($signature, 0, 8) | Out-Null
 	if (-not [Linq.Enumerable]::SequenceEqual($signature, $rpmsg_signature)) {
 		throw "Invalid signature"
 	}
-	Write-Host "- Copying data ..."
+	Write-Verbose "- Copying data ..."
 
 	$total_uncompressed = 0
 	$total_compressed = 0
@@ -52,7 +52,7 @@ try {
 		$total_compressed += $compressed_len;
 		$total_uncompressed += $uncompressed_len;
 
-		Write-Host ("  * Reading chunk {0,4} : compressed = {1,10} , uncompressed = {2,10}" -f $nchunk, $compressed_len, $uncompressed_len)
+		Write-Verbose ("  * Reading chunk {0,4} : compressed = {1,10} , uncompressed = {2,10}" -f $nchunk, $compressed_len, $uncompressed_len)
 
 		$nwritten = 0;
 		$nread = 0;
@@ -68,7 +68,7 @@ try {
 		$nchunk++
 	}
 	
-	Write-Host ("  # Completed: total chunks = {0}, total compressed len = {1}, total uncompressed len = {2}" -f ($nchunk - 1), $total_compressed, $total_uncompressed)
+	Write-Verbose ("  # Completed: total chunks = {0}, total compressed len = {1}, total uncompressed len = {2}" -f ($nchunk - 1), $total_compressed, $total_uncompressed)
 
 	$msout.Position = 0
 	$zlib = New-Object System.IO.Compression.ZLibStream($msout, [System.IO.Compression.CompressionMode]::Decompress)
@@ -84,4 +84,4 @@ try {
 }
 
 $fi = New-Object System.IO.FileInfo($OutputCompoundDocumentFile)
-Write-Host "- Done: $($fi.Length) bytes written to $($fi.FullName)"
+Write-Information "- Done: $($fi.Length) bytes written to $($fi.FullName)"
