@@ -1,5 +1,5 @@
 param(
-	[Parameter(Mandatory = $true)][string]$InputRpmsgFile,
+	[Parameter(Mandatory = $true)][string]$InputFile,
 	[Parameter(Mandatory = $false)][string]$OutputCompoundDocumentFile,
 	[Parameter(Mandatory = $true)][string]$OutputPrimaryXMLFile
 )
@@ -7,11 +7,6 @@ param(
 $ErrorActionPreference = 'Break'
 
 $IsTemporary = $false
-
-if ([string]::IsNullOrWhiteSpace($OutputCompoundDocumentFile)) {
-	$OutputCompoundDocumentFile = [IO.Path]::GetTempFileName()
-	$IsTemporary = $true
-}
 
 ### Adding CompoundDocumentUtils ###
 if (-not [Type]::GetType("CompoundDocumentUtils")) {
@@ -264,86 +259,95 @@ public static class CompoundDocumentUtils
 '@
 }
 
-### Decompressing .rpmsg file ###
-$rpmsg_signature = [byte[]] @( 0x76, 0xe8, 0x04, 0x60, 0xc4, 0x11, 0xe3, 0x86 )
+if ([IO.Path]::GetExtension($InputFile).ToLower() -eq ".rpmsg") {
+    if ([string]::IsNullOrWhiteSpace($OutputCompoundDocumentFile)) {
+        $OutputCompoundDocumentFile = [IO.Path]::GetTempFileName()
+        $IsTemporary = $true
+    }
 
-Write-Verbose "- Opening files ..."
+    ### Decompressing .rpmsg file ###
+    $rpmsg_signature = [byte[]] @( 0x76, 0xe8, 0x04, 0x60, 0xc4, 0x11, 0xe3, 0x86 )
 
-try {
-	$resolvedInput = Resolve-Path $InputRpmsgFile
-	$fin = [System.IO.File]::OpenRead($resolvedInput)
-	$msout = New-Object System.IO.MemoryStream
+    Write-Verbose "- Opening files ..."
 
-	Write-Verbose "- Checking signature ..."
-	$signature = New-Object byte[] 8
-	$fin.Read($signature, 0, 8) | Out-Null
-	if (-not [Linq.Enumerable]::SequenceEqual($signature, $rpmsg_signature)) {
-		throw "Invalid signature"
-	}
-	Write-Verbose "- Copying data ..."
+    try {
+        $resolvedInput = Resolve-Path $InputFile
+        $fin = [System.IO.File]::OpenRead($resolvedInput)
+        $msout = New-Object System.IO.MemoryStream
 
-	$total_uncompressed = 0
-	$total_compressed = 0
+        Write-Verbose "- Checking signature ..."
+        $signature = New-Object byte[] 8
+        $fin.Read($signature, 0, 8) | Out-Null
+        if (-not [Linq.Enumerable]::SequenceEqual($signature, $rpmsg_signature)) {
+            throw "Invalid signature"
+        }
+        Write-Verbose "- Copying data ..."
 
-	$buffer = New-Object byte[] 8192
+        $total_uncompressed = 0
+        $total_compressed = 0
 
-	$nchunk = 1
+        $buffer = New-Object byte[] 8192
 
-	while (-not $fin.EndOfStream) {
-		$magic = New-Object byte[] 4
-		$c = $fin.Read($magic, 0, 4)
-		if ($fin.EndOfStream -or ($c -eq 0)) { break }
+        $nchunk = 1
 
-		if (($c -ne 4) -or -not [Linq.Enumerable]::SequenceEqual($magic, [byte[]]@(0xa0, 0x0f, 0, 0))) {
-			throw "Invalid magic at offset $($fin.Position)"
-		}
+        while (-not $fin.EndOfStream) {
+            $magic = New-Object byte[] 4
+            $c = $fin.Read($magic, 0, 4)
+            if ($fin.EndOfStream -or ($c -eq 0)) { break }
 
-		$tmpInt4 = New-Object byte[] 4
+            if (($c -ne 4) -or -not [Linq.Enumerable]::SequenceEqual($magic, [byte[]]@(0xa0, 0x0f, 0, 0))) {
+                throw "Invalid magic at offset $($fin.Position)"
+            }
 
-		$c = $fin.Read($tmpInt4, 0, 4)
-		if ($c -ne 4) {
-			throw "Unable to read uncompressed length at offset $($fin.Position)"
-		}
-		$uncompressed_len = [BitConverter]::ToUInt32($tmpInt4, 0)
+            $tmpInt4 = New-Object byte[] 4
 
-		$c = $fin.Read($tmpInt4, 0, 4);
-		if ($c -ne 4) {
-			throw "Unable to read compressed length at offset $($fin.Position)"
-		}
-		$compressed_len = [BitConverter]::ToUInt32($tmpInt4, 0)
+            $c = $fin.Read($tmpInt4, 0, 4)
+            if ($c -ne 4) {
+                throw "Unable to read uncompressed length at offset $($fin.Position)"
+            }
+            $uncompressed_len = [BitConverter]::ToUInt32($tmpInt4, 0)
 
-		$total_compressed += $compressed_len;
-		$total_uncompressed += $uncompressed_len;
+            $c = $fin.Read($tmpInt4, 0, 4);
+            if ($c -ne 4) {
+                throw "Unable to read compressed length at offset $($fin.Position)"
+            }
+            $compressed_len = [BitConverter]::ToUInt32($tmpInt4, 0)
 
-		Write-Verbose ("  * Reading chunk {0,4} : compressed = {1,10} , uncompressed = {2,10}" -f $nchunk, $compressed_len, $uncompressed_len)
+            $total_compressed += $compressed_len;
+            $total_uncompressed += $uncompressed_len;
 
-		$nwritten = 0;
-		$nread = 0;
-		$toread = $compressed_len;
+            Write-Verbose ("  * Reading chunk {0,4} : compressed = {1,10} , uncompressed = {2,10}" -f $nchunk, $compressed_len, $uncompressed_len)
 
-		while ( ($nwritten -lt $compressed_len) -and -not $fin.EndOfStream) {
-			$nread = $fin.Read($buffer, 0, [Math]::Min($toread, $buffer.Length));
-			$msout.Write($buffer, 0, $nread);
-			$nwritten += $nread
-			$toread -= $nread
-		}
+            $nwritten = 0;
+            $nread = 0;
+            $toread = $compressed_len;
 
-		$nchunk++
-	}
-	
-	Write-Verbose ("  # Completed: total chunks = {0}, total compressed len = {1}, total uncompressed len = {2}" -f ($nchunk - 1), $total_compressed, $total_uncompressed)
+            while ( ($nwritten -lt $compressed_len) -and -not $fin.EndOfStream) {
+                $nread = $fin.Read($buffer, 0, [Math]::Min($toread, $buffer.Length));
+                $msout.Write($buffer, 0, $nread);
+                $nwritten += $nread
+                $toread -= $nread
+            }
 
-	$msout.Position = 0
-	$zlib = New-Object System.IO.Compression.ZLibStream($msout, [System.IO.Compression.CompressionMode]::Decompress)
+            $nchunk++
+        }
+        
+        Write-Verbose ("  # Completed: total chunks = {0}, total compressed len = {1}, total uncompressed len = {2}" -f ($nchunk - 1), $total_compressed, $total_uncompressed)
 
-	$fout = [System.IO.File]::OpenWrite($OutputCompoundDocumentFile)
-	$zlib.CopyTo($fout)
+        $msout.Position = 0
+        $zlib = New-Object System.IO.Compression.ZLibStream($msout, [System.IO.Compression.CompressionMode]::Decompress)
 
-} finally {
-	if ($fin) { $fin.Close() }
-	if ($fout) { $fout.Close() }
-	if ($msout) { $msout.Close() }
-	if ($zlib) { $zlib.Close() }
+        $fout = [System.IO.File]::OpenWrite($OutputCompoundDocumentFile)
+        $zlib.CopyTo($fout)
+
+    } finally {
+        if ($fin) { $fin.Close() }
+        if ($fout) { $fout.Close() }
+        if ($msout) { $msout.Close() }
+        if ($zlib) { $zlib.Close() }
+    }
+} else {
+    $OutputCompoundDocumentFile = $InputFile
 }
 
 ### Extracting Primary.xml ###
