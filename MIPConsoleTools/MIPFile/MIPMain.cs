@@ -616,7 +616,7 @@ namespace MIPConsoleTools
             {
                 ret = new WholeMessage
                 {
-                    Body = DecompressRTF(msg.Body.ToArray()),
+                    Body = msg.BodyType == BodyType.RTF ? DecompressRTF(msg.Body.ToArray()) : Encoding.UTF8.GetString(msg.Body.ToArray()),
                     BodyType = msg.BodyType,
                     Attachments = new List<WholeMessage.Attachment>()
                 };

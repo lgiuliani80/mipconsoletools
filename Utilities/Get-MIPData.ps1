@@ -1,12 +1,13 @@
 param(
 	[Parameter(Mandatory = $true)][string]$InputFile,
 	[Parameter(Mandatory = $false)][string]$OutputCompoundDocumentFile,
-	[Parameter(Mandatory = $true)][string]$OutputPrimaryXMLFile
+	[Parameter(Mandatory = $false)][string]$OutputPrimaryXMLFile
 )
 
-$ErrorActionPreference = 'Break'
+$ErrorActionPreference = 'Stop'
 
 $IsTemporary = $false
+$IsTemporaryRpmsg = $false
 
 ### Adding CompoundDocumentUtils ###
 if (-not [Type]::GetType("CompoundDocumentUtils")) {
@@ -259,6 +260,38 @@ public static class CompoundDocumentUtils
 '@
 }
 
+if ([IO.Path]::GetExtension($InputFile).ToLower() -eq ".msg") {
+    $iidIStorage = [Guid]"0000000b-0000-0000-C000-000000000046"
+    $filestorage = [CDStorage]::new($InputFile, `
+	    [CompoundDocumentUtils]::STGM_READWRITE -bor [CompoundDocumentUtils]::STGM_SHARE_EXCLUSIVE, `
+	    0, 0, [IntPtr]::Zero, [IntPtr]::Zero, [ref] $iidIStorage)
+
+    $attachmentStorage = $filestorage.OpenStorage("__attach_version1.0_#00000000")
+    $attachmentFileNameStream = $attachmentStorage.OpenStream("__substg1.0_3001001F");
+    $attachmentFileNameBytes = $attachmentFileNameStream.ReadAll()
+    $attachmentFileName = [Text.Encoding]::Unicode.GetString($attachmentFileNameBytes)
+    $attachmentFileNameStream.Dispose()
+
+    if (-not $attachmentFileName.EndsWith(".rpmsg")) {
+        $attachmentStorage.Dispose()
+        $filestorage.Dispose()
+        throw "Not an ancrypted message"
+    }
+
+    $attachmentDataStream = $attachmentStorage.OpenStream("__substg1.0_37010102")
+    $attachmentData = $attachmentDataStream.ReadAll()
+
+    $IsTemporaryRpmsg = $true
+    $InputFile = [IO.Path]::Combine([IO.Path]::GetTempPath(), [IO.Path]::GetRandomFileName() + ".rpmsg")
+    [IO.File]::WriteAllBytes($InputFile, $attachmentData)
+
+    $attachmentDataStream.Dispose()
+
+    $attachmentStorage.Dispose()
+    $filestorage.Dispose()
+}
+
+
 if ([IO.Path]::GetExtension($InputFile).ToLower() -eq ".rpmsg") {
     if ([string]::IsNullOrWhiteSpace($OutputCompoundDocumentFile)) {
         $OutputCompoundDocumentFile = [IO.Path]::GetTempFileName()
@@ -377,8 +410,10 @@ $doc = [xml]$xml;
 $tenantId = $doc.SelectSingleNode("//ADDRESS[@type='home_tenantId']").InnerText;
 $owner = $doc.SelectSingleNode("//OWNER/OBJECT/NAME").InnerText;
 
-$resolvedOutput = $OutputPrimaryXMLFile
-$doc.Save($resolvedOutput)
+if (-not [string]::IsNullOrWhiteSpace($OutputPrimaryXMLFile)) {
+    $resolvedOutput = $OutputPrimaryXMLFile
+    $doc.Save($resolvedOutput)
+}
 
 $primary.Dispose();
 $drmTransform.Dispose();
@@ -388,6 +423,10 @@ $filestorage.Dispose();
 
 if ($IsTemporary) {
 	Remove-Item $OutputCompoundDocumentFile
+}
+
+if ($IsTemporaryRpmsg) {
+    Remove-Item $InputFile
 }
 
 [pscustomobject]@{
